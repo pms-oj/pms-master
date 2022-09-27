@@ -43,6 +43,7 @@ impl State {
     pub async fn handle_connection(&mut self, mut stream: TcpStream) -> async_std::io::Result<()> {
         dbg!(stream.clone());
         let packet = Packet::from_stream(Pin::new(&mut stream)).await?;
+        dbg!(packet.clone());
         self.handle_command(stream, packet).await
     }
 
