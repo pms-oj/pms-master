@@ -44,7 +44,19 @@ impl State {
     pub async fn handle_connection(&mut self, mut stream: TcpStream) -> async_std::io::Result<()> {
         dbg!(stream.clone());
         let packet = Packet::from_stream(Pin::new(&mut stream)).await?;
-        dbg!(packet.clone());
+        #[cfg(debug_assertions)]
+        {
+            let header = packet.heady.header;
+            let body = packet.heady.body.clone();
+            let checksum = packet.checksum;
+            let mut s = vec![];
+            s.append(&mut bincode::DefaultOptions::new().with_big_endian().with_fixint_encoding().serialize(&header).unwrap());
+            s.append(&mut body.clone());
+            s.append(&mut checksum.to_vec());
+            use encoding::{Encoding, DecoderTrap};
+            use encoding::all::ISO_8859_1;
+            println!("{}", ISO_8859_1.decode(&s, DecoderTrap::Strict).unwrap());
+        }
         self.handle_command(stream, packet).await
     }
 
