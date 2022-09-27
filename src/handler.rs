@@ -11,6 +11,7 @@ use k256::ecdh::{EphemeralSecret, SharedSecret};
 use k256::PublicKey;
 use rand::thread_rng;
 use std::pin::Pin;
+use bincode::Options;
 
 pub struct State {
     pub cfg: Arc<Config>,
@@ -54,12 +55,12 @@ impl State {
     ) -> async_std::io::Result<()> {
         match packet.heady.header.command {
             Command::HANDSHAKE => {
-                if let Ok(client_pubkey) = bincode::deserialize::<PublicKey>(&packet.heady.body) {
+                if let Ok(client_pubkey) = bincode::DefaultOptions::new().with_big_endian().deserialize::<PublicKey>(&packet.heady.body) {
                     self.shared =
                         Arc::new(Mutex::new(Some(self.key.diffie_hellman(&client_pubkey))));
                     let req_packet = Packet::make_packet(
                         Command::HANDSHAKE,
-                        bincode::serialize(&self.key.public_key()).unwrap(),
+                        bincode::DefaultOptions::new().with_big_endian().serialize(&self.key.public_key()).unwrap(),
                     );
                     req_packet.send(Pin::new(&mut stream)).await
                 } else {
