@@ -47,18 +47,6 @@ impl State {
         self.handle_command(stream, packet).await
     }
 
-    async fn send_packet(
-        &self,
-        mut stream: TcpStream,
-        packet: Packet,
-    ) -> async_std::io::Result<()> {
-        stream
-            .write_all(&bincode::serialize(&packet).unwrap())
-            .await?;
-        stream.flush().await?;
-        Ok(())
-    }
-
     async fn handle_command(
         &mut self,
         mut stream: TcpStream,
@@ -73,7 +61,7 @@ impl State {
                         Command::HANDSHAKE,
                         bincode::serialize(&self.key.public_key()).unwrap(),
                     );
-                    self.send_packet(stream, req_packet).await
+                    req_packet.send(Pin::new(&mut stream)).await
                 } else {
                     Err(Error::new(ErrorKind::InvalidData, "Invalid packet"))
                 }
