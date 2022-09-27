@@ -5,7 +5,7 @@ use async_std::prelude::*;
 use async_std::sync::*;
 use async_std::task::spawn;
 use futures::stream::StreamExt;
-
+use judge_protocol::constants::*;
 use judge_protocol::packet::*;
 use k256::ecdh::{EphemeralSecret, SharedSecret};
 use k256::PublicKey;
@@ -41,6 +41,7 @@ pub async fn serve(cfg: Config) {
 
 impl State {
     pub async fn handle_connection(&mut self, mut stream: TcpStream) -> async_std::io::Result<()> {
+        dbg!(stream.clone());
         let packet = Packet::from_stream(Pin::new(&mut stream)).await?;
         self.handle_command(stream, packet).await
     }
@@ -53,12 +54,13 @@ impl State {
         stream
             .write_all(&bincode::serialize(&packet).unwrap())
             .await?;
+        stream.flush().await?;
         Ok(())
     }
 
     async fn handle_command(
         &mut self,
-        stream: TcpStream,
+        mut stream: TcpStream,
         packet: Packet,
     ) -> async_std::io::Result<()> {
         match packet.heady.header.command {
