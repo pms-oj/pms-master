@@ -55,7 +55,7 @@ impl State {
             s.append(&mut checksum.to_vec());
             use encoding::{Encoding, DecoderTrap};
             use encoding::all::ISO_8859_1;
-            println!("{}", ISO_8859_1.decode(&s, DecoderTrap::Strict).unwrap());
+            dbg!(ISO_8859_1.decode(&s, DecoderTrap::Strict).unwrap());
         }
         self.handle_command(stream, packet).await
     }
