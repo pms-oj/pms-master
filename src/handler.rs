@@ -4,20 +4,23 @@ use async_std::net::{TcpListener, TcpStream};
 use async_std::prelude::*;
 use async_std::sync::*;
 use async_std::task::spawn;
+use bincode::Options;
 use futures::stream::StreamExt;
 use judge_protocol::constants::*;
-use judge_protocol::packet::*;
 use judge_protocol::handshake::*;
+use judge_protocol::packet::*;
 use k256::ecdh::{EphemeralSecret, SharedSecret};
+use k256::sha2::digest::typenum::private::IsEqualPrivate;
 use k256::PublicKey;
+use log::{debug, info};
 use rand::thread_rng;
 use std::pin::Pin;
-use bincode::Options;
 
 pub struct State {
     pub cfg: Arc<Config>,
     count: Mutex<u32>,
     key: Arc<EphemeralSecret>,
+    pubkey: Arc<Mutex<Vec<PublicKey>>>,
     shared: Arc<Mutex<Vec<SharedSecret>>>,
 }
 
@@ -28,6 +31,7 @@ pub async fn serve(cfg: Config) {
         count: Mutex::new(0),
         key: Arc::new(key),
         shared: Arc::new(Mutex::new(vec![])),
+        pubkey: Arc::new(Mutex::new(vec![])),
     }));
     let listener = TcpListener::bind(cfg.host)
         .await
@@ -45,21 +49,8 @@ pub async fn serve(cfg: Config) {
 
 impl State {
     pub async fn handle_connection(&mut self, mut stream: TcpStream) -> async_std::io::Result<()> {
-        dbg!(stream.clone());
+        info!("Established connection from {:?}", stream.peer_addr());
         let packet = Packet::from_stream(Pin::new(&mut stream)).await?;
-        #[cfg(debug_assertions)]
-        {
-            let header = packet.heady.header;
-            let body = packet.heady.body.clone();
-            let checksum = packet.checksum;
-            let mut s = vec![];
-            s.append(&mut bincode::DefaultOptions::new().with_big_endian().with_fixint_encoding().serialize(&header).unwrap());
-            s.append(&mut body.clone());
-            s.append(&mut checksum.to_vec());
-            use encoding::{Encoding, DecoderTrap};
-            use encoding::all::ISO_8859_1;
-            dbg!(ISO_8859_1.decode(&s, DecoderTrap::Strict).unwrap());
-        }
         self.handle_command(stream, packet).await
     }
 
@@ -70,17 +61,51 @@ impl State {
     ) -> async_std::io::Result<()> {
         match packet.heady.header.command {
             Command::Handshake => {
-                if let Ok(client_pubkey) = bincode::DefaultOptions::new().with_big_endian().with_fixint_encoding().deserialize::<PublicKey>(&packet.heady.body) {
-                    self.shared.lock().await.push(self.key.diffie_hellman(&client_pubkey));
+                if let Ok(client_pubkey) = bincode::DefaultOptions::new()
+                    .with_big_endian()
+                    .with_fixint_encoding()
+                    .deserialize::<PublicKey>(&packet.heady.body)
+                {
+                    self.shared
+                        .lock()
+                        .await
+                        .push(self.key.diffie_hellman(&client_pubkey));
+                    self.pubkey.lock().await.push(client_pubkey);
                     let handshake_res = HandshakeResult {
-                        node_id: (*self.count.lock().await)+1,
+                        node_id: (*self.count.lock().await) + 1,
                         server_pubkey: self.key.public_key().clone(),
                     };
                     let req_packet = Packet::make_packet(
                         Command::Handshake,
-                        bincode::DefaultOptions::new().with_big_endian().with_fixint_encoding().serialize(&handshake_res).unwrap(),
+                        bincode::DefaultOptions::new()
+                            .with_big_endian()
+                            .with_fixint_encoding()
+                            .serialize(&handshake_res)
+                            .unwrap(),
                     );
                     (*self.count.lock().await) += 1;
+                    req_packet.send(Pin::new(&mut stream)).await
+                } else {
+                    Err(Error::new(ErrorKind::InvalidData, "Invalid packet"))
+                }
+            }
+            Command::VerifyToken => {
+                if let Ok(body) = bincode::DefaultOptions::new()
+                    .with_big_endian()
+                    .with_fixint_encoding()
+                    .deserialize::<BodyAfterHandshake<PublicKey>>(&packet.heady.body)
+                {
+                    let client_pubkey = body.req;
+                    let ret = (*self.count.lock().await <= body.node_id)
+                        || (self.pubkey.lock().await[body.node_id as usize] == client_pubkey);
+                    let req_packet = Packet::make_packet(
+                        Command::ReqVerifyToken,
+                        bincode::DefaultOptions::new()
+                            .with_big_endian()
+                            .with_fixint_encoding()
+                            .serialize(&ret)
+                            .unwrap(),
+                    );
                     req_packet.send(Pin::new(&mut stream)).await
                 } else {
                     Err(Error::new(ErrorKind::InvalidData, "Invalid packet"))
