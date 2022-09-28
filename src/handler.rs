@@ -80,6 +80,7 @@ impl State {
                         Command::Handshake,
                         bincode::DefaultOptions::new().with_big_endian().with_fixint_encoding().serialize(&handshake_res).unwrap(),
                     );
+                    (*self.count.lock().await) += 1;
                     req_packet.send(Pin::new(&mut stream)).await
                 } else {
                     Err(Error::new(ErrorKind::InvalidData, "Invalid packet"))
