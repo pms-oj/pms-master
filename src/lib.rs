@@ -12,15 +12,22 @@ use std::str::FromStr;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use log::*;
+    use env_logger::{Builder, Target};
+
+    fn init() {
+        let _ = env_logger::builder().filter_level(log::LevelFilter::max()).is_test(true).try_init();
+    }
 
     #[test]
     fn test_serve() {
-        use log::*;
-        log::set_logger(&logger::StdoutLogger).map(|()| log::set_max_level(LevelFilter::Info));
-        let cfg = Config {
-            host: SocketAddr::from_str("127.0.0.1:3030").unwrap(),
-            host_pass: String::from("asdf"),
-        };
-        block_on(serve(cfg));
+        block_on(async {
+            init();
+            let cfg = Config {
+                host: SocketAddr::from_str("127.0.0.1:3030").unwrap(),
+                host_pass: String::from("asdf"),
+            };
+            serve(cfg).await;
+        });
     }
 }
