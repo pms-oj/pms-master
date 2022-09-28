@@ -1,5 +1,6 @@
 pub mod config;
 pub mod handler;
+pub mod logger;
 
 use config::Config;
 use handler::serve;
@@ -14,6 +15,8 @@ mod tests {
 
     #[test]
     fn test_serve() {
+        use log::*;
+        log::set_logger(&logger::StdoutLogger).map(|()| log::set_max_level(LevelFilter::Info));
         let cfg = Config {
             host: SocketAddr::from_str("127.0.0.1:3030").unwrap(),
             host_pass: String::from("asdf"),

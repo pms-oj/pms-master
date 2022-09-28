@@ -12,7 +12,7 @@ use judge_protocol::packet::*;
 use k256::ecdh::{EphemeralSecret, SharedSecret};
 use k256::sha2::digest::typenum::private::IsEqualPrivate;
 use k256::PublicKey;
-use log::{debug, info};
+use log::*;
 use rand::thread_rng;
 use std::pin::Pin;
 
