@@ -7,6 +7,7 @@ use async_std::task::spawn;
 use futures::stream::StreamExt;
 use judge_protocol::constants::*;
 use judge_protocol::packet::*;
+use judge_protocol::handshake::*;
 use k256::ecdh::{EphemeralSecret, SharedSecret};
 use k256::PublicKey;
 use rand::thread_rng;
@@ -15,16 +16,18 @@ use bincode::Options;
 
 pub struct State {
     pub cfg: Arc<Config>,
+    count: Mutex<u32>,
     key: Arc<EphemeralSecret>,
-    shared: Arc<Mutex<Option<SharedSecret>>>,
+    shared: Arc<Mutex<Vec<SharedSecret>>>,
 }
 
 pub async fn serve(cfg: Config) {
     let key = EphemeralSecret::random(thread_rng());
     let state = Arc::new(Mutex::new(State {
         cfg: Arc::new(cfg.clone()),
+        count: Mutex::new(0),
         key: Arc::new(key),
-        shared: Arc::new(Mutex::new(None)),
+        shared: Arc::new(Mutex::new(vec![])),
     }));
     let listener = TcpListener::bind(cfg.host)
         .await
@@ -68,11 +71,14 @@ impl State {
         match packet.heady.header.command {
             Command::Handshake => {
                 if let Ok(client_pubkey) = bincode::DefaultOptions::new().with_big_endian().with_fixint_encoding().deserialize::<PublicKey>(&packet.heady.body) {
-                    self.shared =
-                        Arc::new(Mutex::new(Some(self.key.diffie_hellman(&client_pubkey))));
+                    self.shared.lock().await.push(self.key.diffie_hellman(&client_pubkey));
+                    let handshake_res = HandshakeResult {
+                        node_id: (*self.count.lock().await)+1,
+                        server_pubkey: self.key.public_key().clone(),
+                    };
                     let req_packet = Packet::make_packet(
                         Command::Handshake,
-                        bincode::DefaultOptions::new().with_big_endian().with_fixint_encoding().serialize(&self.key.public_key()).unwrap(),
+                        bincode::DefaultOptions::new().with_big_endian().with_fixint_encoding().serialize(&handshake_res).unwrap(),
                     );
                     req_packet.send(Pin::new(&mut stream)).await
                 } else {
