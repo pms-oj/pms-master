@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 use uuid::Uuid;
+
+#[derive(Clone, Debug)]
 pub struct RequestJudge {
     pub uuid: Uuid,
     pub judge_priority: PrioirityWeight,

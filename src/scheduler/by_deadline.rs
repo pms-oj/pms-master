@@ -12,6 +12,8 @@ use async_trait::async_trait;
 use std::cmp::Reverse;
 use std::collections::{BTreeSet, BinaryHeap};
 
+use log::*;
+
 // TODO: reduce overhead
 pub struct ByDeadlineWeighted {
     node_cnt: Mutex<usize>,
@@ -38,6 +40,7 @@ impl SchedulerWeighted for ByDeadlineWeighted {
     }
 
     async fn register(&mut self) {
+        debug!("register new node!");
         let nodes_by_sz = Arc::clone(&self.nodes_by_sz);
         let nodes = Arc::clone(&self.nodes);
         let nodes_sz = Arc::clone(&self.nodes_sz);
@@ -52,11 +55,6 @@ impl SchedulerWeighted for ByDeadlineWeighted {
             .await
             .insert((0, (*self.node_cnt.lock().await - 1) as usize));
         node_time.lock().await.push(0);
-        drop(nodes_by_sz);
-        drop(nodes);
-        drop(nodes_sz);
-        drop(node_time);
-        drop(pending);
     }
 
     async fn push(&mut self, uuid: Uuid, total_time: u64, weight: u64) -> SchedulerResult<usize> {
@@ -65,7 +63,7 @@ impl SchedulerWeighted for ByDeadlineWeighted {
         let nodes_sz = Arc::clone(&self.nodes_sz);
         let node_time = Arc::clone(&self.node_time);
         let mut not_found = false;
-        let mut id = std::usize::MAX;
+        let (mut id, mut _sz, mut _new_sz) = (std::usize::MAX, std::u64::MAX, std::u64::MAX);
         if let Some(&(sz, node_id)) = nodes_by_sz.lock().await.iter().nth(0) {
             // node selector
             let new_sz = sz + total_time * weight;
@@ -76,19 +74,18 @@ impl SchedulerWeighted for ByDeadlineWeighted {
                 uuid,
             ));
             nodes_sz.lock().await[node_id] = new_sz;
-            nodes_by_sz.lock().await.remove(&(sz, node_id));
-            nodes_by_sz.lock().await.insert((new_sz, node_id));
+            _sz = sz;
+            _new_sz = new_sz;
+
             id = node_id;
         } else {
             not_found = true;
         }
-        drop(nodes_by_sz);
-        drop(nodes);
-        drop(nodes_sz);
-        drop(node_time);
         if not_found {
             Err(SchedulerError::NoNodeFound)
         } else {
+            nodes_by_sz.lock().await.remove(&(_sz, id));
+            nodes_by_sz.lock().await.insert((_new_sz, id));
             Ok(id)
         }
     }
@@ -124,11 +121,6 @@ impl SchedulerWeighted for ByDeadlineWeighted {
                 .await
                 .ok();
         }
-        drop(nodes_by_sz);
-        drop(nodes);
-        drop(nodes_sz);
-        drop(node_time);
-        drop(pending);
         Ok(())
     }
 }

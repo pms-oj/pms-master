@@ -1,4 +1,4 @@
-use async_std::channel::{unbounded, Sender, Receiver, Recv};
+use async_std::channel::{unbounded, Receiver, Recv, Sender};
 use async_std::io::{Error, ErrorKind};
 use async_std::net::{TcpListener, TcpStream};
 use async_std::prelude::*;
@@ -40,11 +40,17 @@ pub struct State {
     scheduler: Arc<Mutex<ByDeadlineWeighted>>,
 }
 
-pub async fn serve(cfg: Config) {
+#[derive(Clone, Debug)]
+pub enum HandlerMessage {
+    Judge(RequestJudge),
+    Unknown,
+}
+
+pub async fn serve(cfg: Config, serve_rx: Arc<Receiver<HandlerMessage>>) {
     let mut hasher = Sha3_256::new();
     hasher.update(cfg.host_pass.as_bytes());
     let key = EphemeralSecret::random(thread_rng());
-    let (scheduler_tx, scheduler_rx) = unbounded();
+    let (scheduler_tx, mut scheduler_rx) = unbounded();
     let state = Arc::new(Mutex::new(State {
         cfg: Arc::new(Mutex::new(cfg.clone())),
         host_pass: Arc::new(Mutex::new(hasher.finalize().to_vec())),
@@ -59,6 +65,14 @@ pub async fn serve(cfg: Config) {
             scheduler_tx,
         ))))),
     }));
+    {
+        let state_mutex = Arc::clone(&state);
+        spawn(async move { serve_scheduler(Arc::clone(&state_mutex), &mut scheduler_rx).await });
+    }
+    {
+        let state_mutex = Arc::clone(&state);
+        spawn(async move { serve_message(Arc::clone(&state_mutex), Arc::clone(&serve_rx)).await });
+    }
     let listener = TcpListener::bind(cfg.host)
         .await
         .expect(&format!("Cannot bind {:?}", cfg.host));
@@ -71,24 +85,42 @@ pub async fn serve(cfg: Config) {
             //drop(state_mutex);
         })
         .await;
-    /*spawn(async move {
-        loop {
-            if let Ok(msg) = scheduler_rx.try_recv() {
-                match msg {
-                    SchedulerMessage::Send(uuid, node_id) => {
-                        let state_mutex = Arc::clone(&state_mutex2);
-                        state_mutex
-                            .lock()
-                            .await
-                            .handle_judge_send(uuid, node_id)
-                            .await
-                            .ok();
-                    }
-                    _ => {}
+}
+
+pub async fn serve_scheduler(
+    state: Arc<Mutex<State>>,
+    scheduler_rx: &mut Receiver<SchedulerMessage>,
+) {
+    loop {
+        if let Ok(msg) = scheduler_rx.try_recv() {
+            match msg {
+                SchedulerMessage::Send(uuid, node_id) => {
+                    state
+                        .lock()
+                        .await
+                        .handle_judge_send(uuid, node_id)
+                        .await
+                        .ok();
                 }
+                _ => {}
             }
         }
-    });*/
+    }
+}
+
+pub async fn serve_message(state: Arc<Mutex<State>>, message_rx: Arc<Receiver<HandlerMessage>>) {
+    let message_rx = &*message_rx;
+    loop {
+        if let Ok(msg) = message_rx.try_recv() {
+            match msg {
+                HandlerMessage::Judge(judge) => {
+                    let state_mutex = Arc::clone(&state);
+                    spawn(async move { state_mutex.lock().await.req_judge(judge).await });
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
 pub async fn serve_stream(stream: Arc<TcpStream>, packet_rx: &mut Receiver<Vec<u8>>) {
@@ -97,7 +129,7 @@ pub async fn serve_stream(stream: Arc<TcpStream>, packet_rx: &mut Receiver<Vec<u
         if let Ok(msg) = packet_rx.try_recv() {
             stream.write_all(&msg).await;
             stream.flush().await;
-            debug!("{:?}", msg);
+            //debug!("{:?}", msg);
         }
     }
 }
@@ -119,7 +151,6 @@ impl State {
             .push(judge.uuid, estimated_time, judge.judge_priority as u64)
             .await?;
         self.judges.lock().await.insert(judge.uuid, judge);
-        debug!("야옹");
         Ok(())
     }
 
@@ -152,8 +183,7 @@ impl State {
                 .serialize(&body)
                 .unwrap(),
         );
-        packet
-            .send_with_sender(&mut sender);
+        packet.send_with_sender(&mut sender);
         Ok(())
     }
 
@@ -284,7 +314,7 @@ impl State {
                                 .unwrap(),
                         );
                         (*self.count.lock().await) += 1;
-                        self.scheduler.lock().await.register();
+                        self.scheduler.lock().await.register().await;
                         let (packet_tx, mut packet_rx) = unbounded();
                         spawn(async move { serve_stream(stream, &mut packet_rx).await });
                         req_packet.send_with_sender(&mut packet_tx.clone()).await;
