@@ -6,6 +6,7 @@ use async_std::sync::*;
 use async_std::task::spawn;
 use bincode::Options;
 use futures::stream::StreamExt;
+use futures::FutureExt;
 use judge_protocol::constants::*;
 use judge_protocol::handshake::*;
 use judge_protocol::judge::*;
@@ -20,6 +21,7 @@ use sha3::{Digest, Sha3_256};
 use std::collections::HashMap;
 use std::pin::Pin;
 use uuid::Uuid;
+use futures::select;
 
 use crate::config::Config;
 use crate::judge::{PrioirityWeight, RequestJudge, TestCaseManager};
@@ -44,6 +46,12 @@ pub struct State {
 pub enum HandlerMessage {
     Judge(RequestJudge),
     Unknown,
+}
+
+#[derive(Debug)]
+pub enum BrokerMessage {
+    Packet(Arc<Mutex<TcpStream>>, Packet),
+    Unknown
 }
 
 pub async fn serve(cfg: Config, serve_rx: Arc<Receiver<HandlerMessage>>) {
@@ -73,6 +81,12 @@ pub async fn serve(cfg: Config, serve_rx: Arc<Receiver<HandlerMessage>>) {
         let state_mutex = Arc::clone(&state);
         spawn(async move { serve_message(Arc::clone(&state_mutex), Arc::clone(&serve_rx)).await });
     }
+    let (broker_tx, mut broker_rx) = unbounded();
+    {
+        let state_mutex = Arc::clone(&state);
+        let broker_cloned = broker_tx.clone();
+        spawn(async move { serve_broker(state_mutex, broker_cloned, &mut broker_rx).await });
+    }
     let listener = TcpListener::bind(cfg.host)
         .await
         .expect(&format!("Cannot bind {:?}", cfg.host));
@@ -81,10 +95,30 @@ pub async fn serve(cfg: Config, serve_rx: Arc<Receiver<HandlerMessage>>) {
         .for_each_concurrent(None, |stream| async {
             let stream = stream.unwrap();
             let state_mutex = Arc::clone(&state);
-            spawn(async move { (state_mutex.lock().await).handle_connection(stream).await });
+            let broker_cloned = broker_tx.clone();
+            spawn(async move { 
+                (state_mutex.lock().await).handle_connection(broker_cloned, stream).await 
+            });
             //drop(state_mutex);
         })
         .await;
+}
+
+pub async fn serve_broker(state: Arc<Mutex<State>>, broker_tx: Sender<BrokerMessage>, broker_rx: &mut Receiver<BrokerMessage>) {
+    loop {
+        if let Ok(msg) = broker_rx.try_recv() {
+            match msg {
+                BrokerMessage::Packet(stream, packet) => {
+                    let state_mutex = Arc::clone(&state);
+                    let broker_cloned = broker_tx.clone();
+                    spawn(async move {
+                        state_mutex.lock().await.handle_command(broker_cloned, stream, packet).await
+                    });
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
 pub async fn serve_scheduler(
@@ -123,23 +157,33 @@ pub async fn serve_message(state: Arc<Mutex<State>>, message_rx: Arc<Receiver<Ha
     }
 }
 
-pub async fn serve_stream(stream: Arc<TcpStream>, packet_rx: &mut Receiver<Vec<u8>>) {
-    let mut stream = &*stream;
+pub async fn serve_stream(broker_tx: Sender<BrokerMessage>, stream: Arc<Mutex<TcpStream>>, packet_rx: &mut Receiver<Vec<u8>>) {
     loop {
-        if let Ok(msg) = packet_rx.try_recv() {
-            stream.write_all(&msg).await;
-            stream.flush().await;
-            //debug!("{:?}", msg);
+        select! {
+            packet = Packet::from_stream(Arc::clone(&stream)).fuse() => match packet {
+                Ok(packet) => {
+                    let stream_cloned =Arc::clone(&stream);
+                    broker_tx.send(BrokerMessage::Packet(stream_cloned, packet)).await;
+                }
+                Err(_) => {}
+            },
+            msg = packet_rx.next().fuse() => match msg {
+                Some(msg) => {
+                    stream.lock().await.write_all(&msg).await;
+                    stream.lock().await.flush().await;
+                },
+                None => {}
+            }
         }
     }
 }
 
 impl State {
-    pub async fn handle_connection(&mut self, mut stream: TcpStream) -> async_std::io::Result<()> {
+    pub async fn handle_connection(&mut self, broker_tx: Sender<BrokerMessage>, mut stream: TcpStream) -> async_std::io::Result<()> {
         info!("Established connection from {:?}", stream.peer_addr());
-        let stream = Arc::new(stream);
+        let stream = Arc::new(Mutex::new(stream));
         let packet = Packet::from_stream(Arc::clone(&stream)).await?;
-        self.handle_command(Arc::clone(&stream), packet).await
+        self.handle_command(broker_tx, Arc::clone(&stream), packet).await
     }
 
     pub async fn req_judge(&mut self, judge: RequestJudge) -> SchedulerResult<()> {
@@ -183,7 +227,7 @@ impl State {
                 .serialize(&body)
                 .unwrap(),
         );
-        packet.send_with_sender(&mut sender);
+        packet.send_with_sender(&mut sender).await;
         Ok(())
     }
 
@@ -201,7 +245,7 @@ impl State {
 
     async fn send_testcase(
         &mut self,
-        stream: Arc<TcpStream>,
+        stream: Arc<Mutex<TcpStream>>,
         judge_uuid: Uuid,
         node_id: u32,
     ) -> bool {
@@ -237,7 +281,8 @@ impl State {
 
     async fn handle_command(
         &mut self,
-        stream: Arc<TcpStream>,
+        broker_tx: Sender<BrokerMessage>,
+        stream: Arc<Mutex<TcpStream>>,
         packet: Packet,
     ) -> async_std::io::Result<()> {
         match packet.heady.header.command {
@@ -278,6 +323,7 @@ impl State {
                             Ok(())
                         }
                         _ => {
+                            debug!("[node#{}] (Judge: {}) judge has failed", body.node_id, body.req.uuid);
                             self.unlock_slave(body.node_id).await;
                             Ok(())
                         }
@@ -302,7 +348,7 @@ impl State {
                         self.testman.lock().await.push(None);
                         let handshake_res = HandshakeResponse {
                             result: HandshakeResult::Success,
-                            node_id: Some((*self.count.lock().await) + 1),
+                            node_id: Some(*self.count.lock().await),
                             server_pubkey: Some(self.key.public_key().clone()),
                         };
                         let req_packet = Packet::make_packet(
@@ -316,7 +362,8 @@ impl State {
                         (*self.count.lock().await) += 1;
                         self.scheduler.lock().await.register().await;
                         let (packet_tx, mut packet_rx) = unbounded();
-                        spawn(async move { serve_stream(stream, &mut packet_rx).await });
+                        let broker_cloned = broker_tx.clone();
+                        spawn(async move { serve_stream(broker_cloned, stream, &mut packet_rx).await });
                         req_packet.send_with_sender(&mut packet_tx.clone()).await;
                         self.peers.lock().await.push(packet_tx);
                         Ok(())

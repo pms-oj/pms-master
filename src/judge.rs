@@ -51,6 +51,7 @@ impl TestCaseManager {
                 .tests
                 .insert(uuids[i], (stdin[i].clone(), stdout[i].clone()));
         }
+        if n > 0 {
         for i in 0..(n - 1) {
             testman
                 .uuid_map
@@ -60,6 +61,7 @@ impl TestCaseManager {
             .uuid_map
             .insert(testman.cur, TestCaseState::Next(uuids[0]));
         testman.uuid_map.insert(uuids[n - 1], TestCaseState::End);
+    }
         testman
     }
 

@@ -86,6 +86,9 @@ impl SchedulerWeighted for ByDeadlineWeighted {
         } else {
             nodes_by_sz.lock().await.remove(&(_sz, id));
             nodes_by_sz.lock().await.insert((_new_sz, id));
+            if nodes.lock().await[id].len() == 1 {
+                self.touch(id).await;
+            }
             Ok(id)
         }
     }
