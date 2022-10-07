@@ -8,7 +8,7 @@ pub mod scheduler;
 use config::Config;
 use handler::*;
 
-use async_std::task::{block_on, spawn, sleep};
+use async_std::task::{block_on, sleep, spawn};
 use std::net::SocketAddr;
 use std::str::FromStr;
 
@@ -31,9 +31,12 @@ mod tests {
     fn test_serve() {
         block_on(async {
             init();
+            use std::time::Duration;
             let cfg = Config {
                 host: SocketAddr::from_str("127.0.0.1:3030").unwrap(),
                 host_pass: String::from("asdf"),
+                write_time_out: Duration::from_secs(1),
+                read_time_out: Duration::from_secs(1),
             };
             use async_std::channel::unbounded;
             use async_std::sync::Arc;
@@ -43,8 +46,7 @@ mod tests {
             spawn(async move {
                 loop {
                     sleep(Duration::from_secs(5)).await;
-                tx.send(HandlerMessage::Judge(
-                    RequestJudge {
+                    tx.send(HandlerMessage::Judge(RequestJudge {
                         uuid: uuid::Uuid::new_v4(),
                         judge_priority: PrioirityWeight::First,
                         test_size: 0,
@@ -52,12 +54,18 @@ mod tests {
                         stdout: vec![],
                         main: vec![],
                         checker: vec![],
-                        main_lang_uuid: uuid::Uuid::from_str("aea02f71-ab0d-470e-9d0d-3577ec870e29").unwrap(),
-                        checker_lang_uuid: uuid::Uuid::from_str("aea02f71-ab0d-470e-9d0d-3577ec870e29").unwrap(),
+                        main_lang_uuid: uuid::Uuid::from_str(
+                            "aea02f71-ab0d-470e-9d0d-3577ec870e29",
+                        )
+                        .unwrap(),
+                        checker_lang_uuid: uuid::Uuid::from_str(
+                            "aea02f71-ab0d-470e-9d0d-3577ec870e29",
+                        )
+                        .unwrap(),
                         time_limit: 1000,
                         mem_limit: 1024,
-                    }
-                )).await;
+                    }))
+                    .await;
                 }
             });
             serve(cfg, Arc::clone(&message_rx)).await
