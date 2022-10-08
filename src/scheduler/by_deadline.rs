@@ -85,14 +85,13 @@ impl SchedulerWeighted for ByDeadlineWeighted {
         } else {
             nodes_by_sz.remove(&(_sz, id));
             nodes_by_sz.insert((_new_sz, id));
-            let cnt = nodes[id].len();
             drop(nodes_by_sz);
             drop(nodes);
             drop(nodes_sz);
             drop(node_time);
             drop(pending);
-            if cnt == 1 {
-                self.touch(id).await;
+            if self.pending.lock().await[id] == (Uuid::nil(), 0) {
+                self.touch(id).await?;
             }
             Ok(id)
         }
@@ -169,7 +168,7 @@ impl SchedulerWeighted for ByDeadlineWeighted {
             drop(nodes);
             drop(node_time);
             for node_id in used_nodes {
-                if self.nodes.lock().await[node_id].len() == 1 {
+                if self.pending.lock().await[node_id] == (Uuid::nil(), 0) {
                     self.touch(node_id).await?;
                 }
             }

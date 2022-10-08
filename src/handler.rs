@@ -206,6 +206,8 @@ impl State {
             .unwrap()
             .next();
         if test_uuid.is_nil() {
+            let packet = Packet::make_packet(Command::TestCaseEnd, vec![]);
+            packet.send_with_sender(stream).await;
             self.unlock_slave(node_id).await;
             false
         } else {
@@ -291,8 +293,8 @@ impl State {
                         }
                         _ => {
                             debug!(
-                                "[node#{}] (Judge: {}) judge has failed",
-                                body.node_id, body.req.uuid
+                                "[node#{}] (Judge: {}) judge has failed: {:?}",
+                                body.node_id, body.req.uuid, body.req.result,
                             );
                             self.unlock_slave(body.node_id).await;
                             Ok(())
