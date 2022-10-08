@@ -1,9 +1,14 @@
+#[macro_use]
+extern crate log;
+
+pub mod broker;
 pub mod config;
 pub mod constants;
 pub mod handler;
 pub mod judge;
 pub mod logger;
 pub mod scheduler;
+pub mod stream;
 
 use config::Config;
 use handler::*;
@@ -52,8 +57,12 @@ mod tests {
                         test_size: 0,
                         stdin: vec![],
                         stdout: vec![],
-                        main: vec![],
-                        checker: vec![],
+                        main: "#include <bits/stdc++.h>\nint main(void) { return 0; }"
+                            .as_bytes()
+                            .to_vec(),
+                        checker: "#include <bits/stdc++.h>\nint main(void) { return 0; }"
+                            .as_bytes()
+                            .to_vec(),
                         main_lang_uuid: uuid::Uuid::from_str(
                             "aea02f71-ab0d-470e-9d0d-3577ec870e29",
                         )
