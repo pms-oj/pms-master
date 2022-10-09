@@ -7,7 +7,6 @@ pub mod constants;
 pub mod event;
 pub mod handler;
 pub mod judge;
-pub mod logger;
 pub mod scheduler;
 pub mod stream;
 pub mod timer;
