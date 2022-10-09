@@ -1,4 +1,4 @@
-use fast_log::appender::*;
+
 use log::{Level, Log, Metadata, Record};
 
 pub struct StdoutLogger;

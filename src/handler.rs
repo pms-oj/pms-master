@@ -1,11 +1,11 @@
-use async_std::channel::{unbounded, Receiver, Recv, Sender};
+use async_std::channel::{unbounded, Receiver, Sender};
 use async_std::io::{Error, ErrorKind};
 use async_std::net::{TcpListener, TcpStream};
-use async_std::prelude::*;
+
 use async_std::sync::*;
 use async_std::task::spawn;
 use bincode::Options;
-use futures::select;
+
 use futures::stream::StreamExt;
 use futures::FutureExt;
 use judge_protocol::constants::*;
@@ -14,19 +14,19 @@ use judge_protocol::judge::*;
 use judge_protocol::packet::*;
 use judge_protocol::security::*;
 use k256::ecdh::{EphemeralSecret, SharedSecret};
-use k256::sha2::digest::typenum::private::IsEqualPrivate;
+
 use k256::PublicKey;
 use log::*;
 use rand::thread_rng;
 use sha3::{Digest, Sha3_256};
 use std::collections::HashMap;
-use std::pin::Pin;
+
 use uuid::Uuid;
 
 use crate::broker::*;
 use crate::config::Config;
 use crate::event::*;
-use crate::judge::{PrioirityWeight, RequestJudge, TestCaseManager};
+use crate::judge::{RequestJudge, TestCaseManager};
 use crate::scheduler::{by_deadline::ByDeadlineWeighted, *};
 use crate::stream::*;
 use crate::timer::*;
@@ -59,7 +59,7 @@ pub async fn serve(cfg: Config, event_tx: Sender<EventMessage>) -> Sender<Handle
     hasher.update(cfg.host_pass.as_bytes());
     let key = EphemeralSecret::random(thread_rng());
     let pubkey = key.public_key();
-    let (handler_tx, mut handler_rx) = unbounded();
+    let (handler_tx, handler_rx) = unbounded();
     let (scheduler_tx, mut scheduler_rx) = unbounded();
     let (reversed_tx, _) = unbounded();
     let state = Arc::new(Mutex::new(State {
@@ -147,7 +147,7 @@ impl State {
         &mut self,
         scheduler_tx: Sender<SchedulerMessage>,
         broker_tx: Sender<BrokerMessage>,
-        mut stream: TcpStream,
+        stream: TcpStream,
     ) -> async_std::io::Result<()> {
         info!("Established connection from {:?}", stream.peer_addr());
         let stream = Arc::new(stream);

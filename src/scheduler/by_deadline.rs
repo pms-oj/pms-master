@@ -64,7 +64,7 @@ impl SchedulerWeighted for ByDeadlineWeighted {
         let mut nodes_by_sz = self.nodes_by_sz.lock().await;
         let mut nodes = self.nodes.lock().await;
         let mut nodes_sz = self.nodes_sz.lock().await;
-        let mut node_time = self.node_time.lock().await;
+        let node_time = self.node_time.lock().await;
         let pending = self.pending.lock().await;
         let mut not_found = false;
         let (mut id, mut _sz, mut _new_sz) = (std::usize::MAX, std::u64::MAX, std::u64::MAX);

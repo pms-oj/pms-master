@@ -5,7 +5,7 @@ use async_std::task::spawn;
 use judge_protocol::packet::*;
 
 use crate::handler::State;
-use crate::scheduler::{self, *};
+use crate::scheduler::{*};
 
 #[derive(Debug)]
 pub enum BrokerMessage {
