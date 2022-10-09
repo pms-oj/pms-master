@@ -27,6 +27,11 @@ mod tests {
 
     #[test]
     fn test_ac1() {
+        use crate::config::Config;
+        use crate::handler::{serve, HandlerMessage};
+        use async_std::task::{block_on, sleep};
+        use std::net::SocketAddr;
+        use std::str::FromStr;
         block_on(async {
             init();
             use std::time::Duration;
@@ -34,8 +39,6 @@ mod tests {
             let cfg = Config {
                 host: SocketAddr::from_str("127.0.0.1:3030").unwrap(),
                 host_pass: String::from("asdf"),
-                write_time_out: Duration::from_secs(1),
-                read_time_out: Duration::from_secs(1),
             };
             use async_std::channel::unbounded;
             use judge::*;
@@ -75,6 +78,11 @@ mod tests {
 
     #[test]
     fn test_tle1() {
+        use crate::config::Config;
+        use crate::handler::{serve, HandlerMessage};
+        use async_std::task::{block_on, sleep};
+        use std::net::SocketAddr;
+        use std::str::FromStr;
         block_on(async {
             init();
             use std::time::Duration;
@@ -82,8 +90,6 @@ mod tests {
             let cfg = Config {
                 host: SocketAddr::from_str("127.0.0.1:3030").unwrap(),
                 host_pass: String::from("asdf"),
-                write_time_out: Duration::from_secs(1),
-                read_time_out: Duration::from_secs(1),
             };
             use async_std::channel::unbounded;
             use judge::*;
@@ -123,6 +129,11 @@ mod tests {
 
     #[test]
     fn test_rte1() {
+        use crate::config::Config;
+        use crate::handler::{serve, HandlerMessage};
+        use async_std::task::{block_on, sleep};
+        use std::net::SocketAddr;
+        use std::str::FromStr;
         block_on(async {
             init();
             use std::time::Duration;
@@ -130,8 +141,6 @@ mod tests {
             let cfg = Config {
                 host: SocketAddr::from_str("127.0.0.1:3030").unwrap(),
                 host_pass: String::from("asdf"),
-                write_time_out: Duration::from_secs(1),
-                read_time_out: Duration::from_secs(1),
             };
             use async_std::channel::unbounded;
             use judge::*;

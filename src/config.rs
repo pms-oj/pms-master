@@ -6,6 +6,4 @@ use std::time::Duration;
 pub struct Config {
     pub host: SocketAddr,
     pub host_pass: String,
-    pub write_time_out: Duration,
-    pub read_time_out: Duration,
 }
