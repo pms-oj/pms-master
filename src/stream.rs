@@ -1,6 +1,6 @@
 use async_std::channel::{Receiver, Sender};
 use async_std::io::prelude::*;
-use async_std::io::{ErrorKind};
+use async_std::io::ErrorKind;
 use async_std::net::TcpStream;
 use async_std::sync::Arc;
 use futures::select;

@@ -11,20 +11,11 @@ pub mod scheduler;
 pub mod stream;
 pub mod timer;
 
-
-
-
-
-
-
-
 #[cfg(test)]
 mod tests {
-    
 
     use super::*;
-    
-    
+
     use log::*;
 
     fn init() {
