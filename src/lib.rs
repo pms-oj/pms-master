@@ -4,13 +4,13 @@ extern crate log;
 pub mod broker;
 pub mod config;
 pub mod constants;
+pub mod event;
 pub mod handler;
 pub mod judge;
 pub mod logger;
 pub mod scheduler;
 pub mod stream;
 pub mod timer;
-pub mod event;
 
 use config::Config;
 use handler::*;
@@ -47,8 +47,8 @@ mod tests {
                 write_time_out: Duration::from_secs(1),
                 read_time_out: Duration::from_secs(1),
             };
-            use judge::*;
             use async_std::channel::unbounded;
+            use judge::*;
             let (event_tx, event_rx) = unbounded();
             let tx = serve(cfg, event_tx).await;
             let tx_cloned = tx.clone();
@@ -95,8 +95,8 @@ mod tests {
                 write_time_out: Duration::from_secs(1),
                 read_time_out: Duration::from_secs(1),
             };
-            use judge::*;
             use async_std::channel::unbounded;
+            use judge::*;
             let (event_tx, event_rx) = unbounded();
             let tx = serve(cfg, event_tx).await;
             let tx_cloned = tx.clone();
@@ -143,8 +143,8 @@ mod tests {
                 write_time_out: Duration::from_secs(1),
                 read_time_out: Duration::from_secs(1),
             };
-            use judge::*;
             use async_std::channel::unbounded;
+            use judge::*;
             let (event_tx, event_rx) = unbounded();
             let tx = serve(cfg, event_tx).await;
             let tx_cloned = tx.clone();

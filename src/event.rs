@@ -3,5 +3,5 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub enum EventMessage {
-    JudgeResult(Uuid, JudgeState) // (judge UUID, state)
+    JudgeResult(Uuid, JudgeState), // (judge UUID, state)
 }

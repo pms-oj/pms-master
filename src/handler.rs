@@ -25,11 +25,11 @@ use uuid::Uuid;
 
 use crate::broker::*;
 use crate::config::Config;
+use crate::event::*;
 use crate::judge::{PrioirityWeight, RequestJudge, TestCaseManager};
 use crate::scheduler::{by_deadline::ByDeadlineWeighted, *};
 use crate::stream::*;
 use crate::timer::*;
-use crate::event::*;
 
 pub struct State {
     pub cfg: Arc<Mutex<Config>>,
@@ -54,15 +54,12 @@ pub enum HandlerMessage {
     Unknown,
 }
 
-pub async fn serve(
-    cfg: Config,
-    event_tx: Sender<EventMessage>
-) -> Sender<HandlerMessage> {
+pub async fn serve(cfg: Config, event_tx: Sender<EventMessage>) -> Sender<HandlerMessage> {
     let mut hasher = Sha3_256::new();
     hasher.update(cfg.host_pass.as_bytes());
     let key = EphemeralSecret::random(thread_rng());
     let pubkey = key.public_key();
-    let (handler_tx, mut handler_rx) = unbounded(); 
+    let (handler_tx, mut handler_rx) = unbounded();
     let (scheduler_tx, mut scheduler_rx) = unbounded();
     let (reversed_tx, _) = unbounded();
     let state = Arc::new(Mutex::new(State {
@@ -280,19 +277,28 @@ impl State {
                     .with_fixint_encoding()
                     .deserialize::<BodyAfterHandshake<JudgeResponseBody>>(&packet.heady.body)
                 {
-                    self.event_tx.send(EventMessage::JudgeResult(body.req.uuid, body.req.result.clone())).await.ok();
+                    self.event_tx
+                        .send(EventMessage::JudgeResult(
+                            body.req.uuid,
+                            body.req.result.clone(),
+                        ))
+                        .await
+                        .ok();
                     match body.req.result {
                         JudgeState::DoCompile => {
                             trace!(
                                 "[node#{}] (Judge: {}) started compile codes",
-                                body.node_id, body.req.uuid
+                                body.node_id,
+                                body.req.uuid
                             );
                             Ok(())
                         }
                         JudgeState::CompleteCompile(stdout) => {
                             trace!(
                                 "[node#{}] (Judge: {}) main code compile stdout: {}",
-                                body.node_id, body.req.uuid, stdout
+                                body.node_id,
+                                body.req.uuid,
+                                stdout
                             );
                             let mut tx = self.peers.lock().await[body.node_id as usize].clone();
                             let _ = self
@@ -321,10 +327,49 @@ impl State {
                                 .await;
                             Ok(())
                         }
+                        JudgeState::RuntimeError(test_uuid, exit_code) => {
+                            trace!("[node#{}] (Judge: {}) (Test: {}) master has recived report RTE(NZEC) of main code. exit code: {}", body.node_id, body.req.uuid, test_uuid, exit_code);
+                            let mut tx = self.peers.lock().await[body.node_id as usize].clone();
+                            let _ = self
+                                .send_testcase(&mut tx, body.req.uuid, body.node_id)
+                                .await;
+                            Ok(())
+                        }
+                        JudgeState::DiedOnSignal(test_uuid, exit_sig) => {
+                            trace!("[node#{}] (Judge: {}) (Test: {}) master has recived report RTE(DiedOnSignal) of main code. exit code: {}", body.node_id, body.req.uuid, test_uuid, exit_sig);
+                            let mut tx = self.peers.lock().await[body.node_id as usize].clone();
+                            let _ = self
+                                .send_testcase(&mut tx, body.req.uuid, body.node_id)
+                                .await;
+                            Ok(())
+                        }
+                        JudgeState::TimeLimitExceed(test_uuid) => {
+                            trace!("[node#{}] (Judge: {}) (Test: {}) master has recived report TLE of main code.", body.node_id, body.req.uuid, test_uuid);
+                            let mut tx = self.peers.lock().await[body.node_id as usize].clone();
+                            let _ = self
+                                .send_testcase(&mut tx, body.req.uuid, body.node_id)
+                                .await;
+                            Ok(())
+                        }
+                        JudgeState::MemLimitExceed(test_uuid) => {
+                            trace!("[node#{}] (Judge: {}) (Test: {}) master has recived report MLE of main code.", body.node_id, body.req.uuid, test_uuid);
+                            let mut tx = self.peers.lock().await[body.node_id as usize].clone();
+                            let _ = self
+                                .send_testcase(&mut tx, body.req.uuid, body.node_id)
+                                .await;
+                            Ok(())
+                        }
+                        JudgeState::GeneralError(stderr) => {
+                            trace!("[node#{}] (Judge: {}) master has received report wrong checker. stderr: {}", body.node_id, body.req.uuid, stderr);
+                            self.unlock_slave(body.node_id).await;
+                            Ok(())
+                        }
                         _ => {
                             trace!(
                                 "[node#{}] (Judge: {}) judge has failed: {:?}",
-                                body.node_id, body.req.uuid, body.req.result,
+                                body.node_id,
+                                body.req.uuid,
+                                body.req.result,
                             );
                             self.unlock_slave(body.node_id).await;
                             Ok(())
