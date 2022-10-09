@@ -54,25 +54,21 @@ mod tests {
                     tx.send(HandlerMessage::Judge(RequestJudge {
                         uuid: uuid::Uuid::new_v4(),
                         judge_priority: PrioirityWeight::First,
-                        test_size: 0,
-                        stdin: vec![],
-                        stdout: vec![],
-                        main: "#include <bits/stdc++.h>\nint main(void) { return 0; }"
-                            .as_bytes()
-                            .to_vec(),
-                        checker: "#include <bits/stdc++.h>\nint main(void) { return 0; }"
-                            .as_bytes()
-                            .to_vec(),
+                        test_size: 1,
+                        stdin: vec![include_bytes!("../assets/stdin/1.in").to_vec()],
+                        stdout: vec![include_bytes!("../assets/stdout/1.out").to_vec()],
+                        main: include_bytes!("../assets/cpp/ac_1.cpp").to_vec(),
+                        checker: include_bytes!("../assets/checker/lcmp.cpp").to_vec(),
                         main_lang_uuid: uuid::Uuid::from_str(
                             "aea02f71-ab0d-470e-9d0d-3577ec870e29",
                         )
                         .unwrap(),
                         checker_lang_uuid: uuid::Uuid::from_str(
-                            "aea02f71-ab0d-470e-9d0d-3577ec870e29",
+                            "ad9d152c-abbd-4dd2-b484-5825b6a7e4bb",
                         )
                         .unwrap(),
                         time_limit: 1000,
-                        mem_limit: 1024,
+                        mem_limit: 1048576,
                     }))
                     .await;
                 }

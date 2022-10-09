@@ -35,6 +35,7 @@ pub async fn serve_stream(
                         if let ErrorKind::NotConnected = kind {
                             debug!("try to down node!");
                             scheduler_tx.send(SchedulerMessage::DownNode(node_id)).await.ok();
+                            break;
                         }
                     }
                     stream.write_all(&msg).await.ok();
