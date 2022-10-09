@@ -28,6 +28,7 @@ use crate::config::Config;
 use crate::judge::{PrioirityWeight, RequestJudge, TestCaseManager};
 use crate::scheduler::{by_deadline::ByDeadlineWeighted, *};
 use crate::stream::*;
+use crate::timer::*;
 
 pub struct State {
     pub cfg: Arc<Mutex<Config>>,
@@ -40,15 +41,21 @@ pub struct State {
     testman: Arc<Mutex<Vec<Option<Box<TestCaseManager>>>>>,
     peers: Arc<Mutex<Vec<Sender<Vec<u8>>>>>,
     scheduler: Arc<Mutex<ByDeadlineWeighted>>,
+    serve_tx: Sender<HandlerMessage>,
 }
 
 #[derive(Clone, Debug)]
 pub enum HandlerMessage {
     Judge(RequestJudge),
+    DownNode(u32),
     Unknown,
 }
 
-pub async fn serve(cfg: Config, serve_rx: Arc<Receiver<HandlerMessage>>) {
+pub async fn serve(
+    cfg: Config,
+    serve_tx: Sender<HandlerMessage>,
+    serve_rx: Arc<Receiver<HandlerMessage>>,
+) {
     let mut hasher = Sha3_256::new();
     hasher.update(cfg.host_pass.as_bytes());
     let key = EphemeralSecret::random(thread_rng());
@@ -71,6 +78,7 @@ pub async fn serve(cfg: Config, serve_rx: Arc<Receiver<HandlerMessage>>) {
         peers: Arc::new(Mutex::new(vec![reversed_tx])),
         testman: Arc::new(Mutex::new(vec![None])),
         scheduler: Arc::new(Mutex::new(ByDeadlineWeighted::new(scheduler_tx.clone()))),
+        serve_tx,
     }));
     {
         let state_mutex = Arc::clone(&state);
@@ -117,6 +125,10 @@ pub async fn serve_message(state: Arc<Mutex<State>>, message_rx: Arc<Receiver<Ha
                 HandlerMessage::Judge(judge) => {
                     let state_mutex = Arc::clone(&state);
                     spawn(async move { state_mutex.lock().await.req_judge(judge).await });
+                }
+                HandlerMessage::DownNode(node_id) => {
+                    let state_mutex = Arc::clone(&state);
+                    spawn(async move { state_mutex.lock().await.down_node(node_id).await });
                 }
                 _ => {}
             }
@@ -346,16 +358,19 @@ impl State {
                             unbounded();
                         let scheduler_cloned = scheduler_tx.clone();
                         let broker_cloned = broker_tx.clone();
+                        let stream_cloned = Arc::clone(&stream);
                         spawn(async move {
                             serve_stream(
                                 scheduler_cloned,
                                 broker_cloned,
                                 &mut packet_rx,
-                                stream,
+                                stream_cloned,
                                 node_id,
                             )
                             .await
                         });
+                        let serve_tx = self.serve_tx.clone();
+                        spawn(async move { check_alive(node_id, serve_tx, stream).await });
                         req_packet.send_with_sender(&mut packet_tx.clone()).await;
                         self.peers.lock().await.push(packet_tx);
                         Ok(())
@@ -373,7 +388,7 @@ impl State {
                                 .serialize(&handshake_res)
                                 .unwrap(),
                         );
-                        req_packet.send(Arc::clone(&stream)).await;
+                        req_packet.send(Arc::clone(&stream)).await.ok();
                         Ok(())
                     }
                 } else {
