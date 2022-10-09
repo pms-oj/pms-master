@@ -33,7 +33,7 @@ pub async fn serve_stream(
                     if let Err(err) = stream.peer_addr() {
                         let kind = err.kind();
                         if let ErrorKind::NotConnected = kind {
-                            debug!("try to down node!");
+                            trace!("try to down node!");
                             scheduler_tx.send(SchedulerMessage::DownNode(node_id)).await.ok();
                             break;
                         }

@@ -40,7 +40,7 @@ impl SchedulerWeighted for ByDeadlineWeighted {
     }
 
     async fn register(&mut self) {
-        debug!("register new node!");
+        trace!("register new node!");
         let mut nodes_by_sz = self.nodes_by_sz.lock().await;
         let mut nodes = self.nodes.lock().await;
         let mut nodes_sz = self.nodes_sz.lock().await;
@@ -57,6 +57,7 @@ impl SchedulerWeighted for ByDeadlineWeighted {
         drop(nodes_sz);
         drop(node_time);
         drop(pending);
+        self.rebalance().await.ok();
     }
 
     async fn push(&mut self, uuid: Uuid, total_time: u64, weight: u64) -> SchedulerResult<usize> {
@@ -81,7 +82,12 @@ impl SchedulerWeighted for ByDeadlineWeighted {
             not_found = true;
         }
         if not_found {
-            Err(SchedulerError::NoNodeFound)
+            let time = total_time * weight;
+            let sz = nodes_sz[NODE_ZERO];
+            let new_sz = sz + time;
+            nodes[NODE_ZERO].push((Reverse(0), Reverse(time), uuid));
+            nodes_sz[NODE_ZERO] = new_sz;
+            Ok(NODE_ZERO)
         } else {
             nodes_by_sz.remove(&(_sz, id));
             nodes_by_sz.insert((_new_sz, id));

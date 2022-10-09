@@ -12,5 +12,6 @@ int main(void) {
         cin >> a >> b;
         cout << a+b << "\n";
     }
+    // exit code: 1 (NZEC)
     return 1;
 }

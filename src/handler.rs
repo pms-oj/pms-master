@@ -29,6 +29,7 @@ use crate::judge::{PrioirityWeight, RequestJudge, TestCaseManager};
 use crate::scheduler::{by_deadline::ByDeadlineWeighted, *};
 use crate::stream::*;
 use crate::timer::*;
+use crate::event::*;
 
 pub struct State {
     pub cfg: Arc<Mutex<Config>>,
@@ -42,24 +43,26 @@ pub struct State {
     peers: Arc<Mutex<Vec<Sender<Vec<u8>>>>>,
     scheduler: Arc<Mutex<ByDeadlineWeighted>>,
     serve_tx: Sender<HandlerMessage>,
+    event_tx: Sender<EventMessage>,
 }
 
 #[derive(Clone, Debug)]
 pub enum HandlerMessage {
     Judge(RequestJudge),
     DownNode(u32),
+    Shutdown,
     Unknown,
 }
 
 pub async fn serve(
     cfg: Config,
-    serve_tx: Sender<HandlerMessage>,
-    serve_rx: Arc<Receiver<HandlerMessage>>,
-) {
+    event_tx: Sender<EventMessage>
+) -> Sender<HandlerMessage> {
     let mut hasher = Sha3_256::new();
     hasher.update(cfg.host_pass.as_bytes());
     let key = EphemeralSecret::random(thread_rng());
     let pubkey = key.public_key();
+    let (handler_tx, mut handler_rx) = unbounded(); 
     let (scheduler_tx, mut scheduler_rx) = unbounded();
     let (reversed_tx, _) = unbounded();
     let state = Arc::new(Mutex::new(State {
@@ -78,7 +81,8 @@ pub async fn serve(
         peers: Arc::new(Mutex::new(vec![reversed_tx])),
         testman: Arc::new(Mutex::new(vec![None])),
         scheduler: Arc::new(Mutex::new(ByDeadlineWeighted::new(scheduler_tx.clone()))),
-        serve_tx,
+        serve_tx: handler_tx.clone(),
+        event_tx,
     }));
     {
         let state_mutex = Arc::clone(&state);
@@ -86,7 +90,7 @@ pub async fn serve(
     }
     {
         let state_mutex = Arc::clone(&state);
-        spawn(async move { serve_message(Arc::clone(&state_mutex), Arc::clone(&serve_rx)).await });
+        spawn(async move { serve_message(Arc::clone(&state_mutex), Arc::new(handler_rx)).await });
     }
     let (broker_tx, mut broker_rx) = unbounded();
     {
@@ -100,21 +104,23 @@ pub async fn serve(
     let listener = TcpListener::bind(cfg.host)
         .await
         .expect(&format!("Cannot bind {:?}", cfg.host));
-    listener
-        .incoming()
-        .for_each_concurrent(None, |stream| async {
-            let stream = stream.unwrap();
-            let state_mutex = Arc::clone(&state);
-            let broker_cloned = broker_tx.clone();
-            let scheduler_cloned = scheduler_tx.clone();
-            spawn(async move {
-                (state_mutex.lock().await)
-                    .handle_connection(scheduler_cloned, broker_cloned, stream)
-                    .await
-            });
-            //drop(state_mutex);
-        })
-        .await;
+    spawn(async move {
+        listener
+            .incoming()
+            .for_each_concurrent(None, |stream| async {
+                let stream = stream.unwrap();
+                let state_mutex = Arc::clone(&state);
+                let broker_cloned = broker_tx.clone();
+                let scheduler_cloned = scheduler_tx.clone();
+                spawn(async move {
+                    (state_mutex.lock().await)
+                        .handle_connection(scheduler_cloned, broker_cloned, stream)
+                        .await
+                });
+            })
+            .await
+    });
+    handler_tx
 }
 
 pub async fn serve_message(state: Arc<Mutex<State>>, message_rx: Arc<Receiver<HandlerMessage>>) {
@@ -129,6 +135,9 @@ pub async fn serve_message(state: Arc<Mutex<State>>, message_rx: Arc<Receiver<Ha
                 HandlerMessage::DownNode(node_id) => {
                     let state_mutex = Arc::clone(&state);
                     spawn(async move { state_mutex.lock().await.down_node(node_id).await });
+                }
+                HandlerMessage::Shutdown => {
+                    unimplemented!()
                 }
                 _ => {}
             }
@@ -197,7 +206,7 @@ impl State {
 
     async fn unlock_slave(&mut self, node_id: u32) {
         // TODO
-        debug!("[node#{}] unlocked!", node_id);
+        trace!("[node#{}] unlocked!", node_id);
         self.scheduler
             .lock()
             .await
@@ -248,12 +257,12 @@ impl State {
     pub async fn down_node(&mut self, node_id: u32) {
         let testman = self.testman.lock().await;
         let mut scheduler = self.scheduler.lock().await;
-        debug!("ok ok down {}", node_id);
+        trace!("ok ok down {}", node_id);
         scheduler
             .unregister(node_id as usize)
             .await
             .expect("failed to down node");
-        debug!("ok.. down {}", node_id);
+        trace!("ok.. down {}", node_id);
         drop(testman.iter().nth(node_id as usize));
     }
 
@@ -271,16 +280,17 @@ impl State {
                     .with_fixint_encoding()
                     .deserialize::<BodyAfterHandshake<JudgeResponseBody>>(&packet.heady.body)
                 {
+                    self.event_tx.send(EventMessage::JudgeResult(body.req.uuid, body.req.result.clone())).await.ok();
                     match body.req.result {
                         JudgeState::DoCompile => {
-                            debug!(
+                            trace!(
                                 "[node#{}] (Judge: {}) started compile codes",
                                 body.node_id, body.req.uuid
                             );
                             Ok(())
                         }
                         JudgeState::CompleteCompile(stdout) => {
-                            debug!(
+                            trace!(
                                 "[node#{}] (Judge: {}) main code compile stdout: {}",
                                 body.node_id, body.req.uuid, stdout
                             );
@@ -291,12 +301,12 @@ impl State {
                             Ok(())
                         }
                         JudgeState::CompileError(stderr) => {
-                            debug!("[node#{}] (Judge: {}) master has received report CE of main code. stderr: {}", body.node_id, body.req.uuid, stderr);
+                            trace!("[node#{}] (Judge: {}) master has received report CE of main code. stderr: {}", body.node_id, body.req.uuid, stderr);
                             self.unlock_slave(body.node_id).await;
                             Ok(())
                         }
                         JudgeState::Accepted(test_uuid, time, mem) => {
-                            debug!("[node#{}] (Judge: {}) (Test: {}) master has recived report AC of main code. time: {}ms, mem: {}kB", body.node_id, body.req.uuid, test_uuid, time, mem);
+                            trace!("[node#{}] (Judge: {}) (Test: {}) master has recived report AC of main code. time: {}ms, mem: {}kB", body.node_id, body.req.uuid, test_uuid, time, mem);
                             let mut tx = self.peers.lock().await[body.node_id as usize].clone();
                             let _ = self
                                 .send_testcase(&mut tx, body.req.uuid, body.node_id)
@@ -304,7 +314,7 @@ impl State {
                             Ok(())
                         }
                         JudgeState::WrongAnswer(test_uuid, time, mem) => {
-                            debug!("[node#{}] (Judge: {}) (Test: {}) master has recived report WA of main code. time: {}ms, mem: {}kB", body.node_id, body.req.uuid, test_uuid, time, mem);
+                            trace!("[node#{}] (Judge: {}) (Test: {}) master has recived report WA of main code. time: {}ms, mem: {}kB", body.node_id, body.req.uuid, test_uuid, time, mem);
                             let mut tx = self.peers.lock().await[body.node_id as usize].clone();
                             let _ = self
                                 .send_testcase(&mut tx, body.req.uuid, body.node_id)
@@ -312,7 +322,7 @@ impl State {
                             Ok(())
                         }
                         _ => {
-                            debug!(
+                            trace!(
                                 "[node#{}] (Judge: {}) judge has failed: {:?}",
                                 body.node_id, body.req.uuid, body.req.result,
                             );
@@ -331,7 +341,7 @@ impl State {
                     .deserialize::<HandshakeRequest>(&packet.heady.body)
                 {
                     if handshake_req.pass == *self.host_pass.lock().await {
-                        debug!("Handshake");
+                        trace!("Handshake");
                         self.shared
                             .lock()
                             .await
