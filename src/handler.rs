@@ -1,27 +1,33 @@
 use async_std::channel::{unbounded, Receiver, Sender};
 use async_std::io::{Error, ErrorKind};
 use async_std::net::{TcpListener, TcpStream};
-
 use async_std::sync::*;
 use async_std::task::spawn;
+
 use bincode::Options;
 
 use futures::stream::StreamExt;
-use futures::FutureExt;
+
 use judge_protocol::constants::*;
 use judge_protocol::handshake::*;
 use judge_protocol::judge::*;
 use judge_protocol::packet::*;
 use judge_protocol::security::*;
-use k256::ecdh::{EphemeralSecret, SharedSecret};
 
+use k256::ecdh::{EphemeralSecret, SharedSecret};
 use k256::PublicKey;
+
 use log::*;
+
 use rand::thread_rng;
+
 use sha3::{Digest, Sha3_256};
+
 use std::collections::HashMap;
 
 use uuid::Uuid;
+
+use actix::prelude::*;
 
 use crate::broker::*;
 use crate::config::Config;
@@ -42,11 +48,13 @@ pub struct State {
     testman: Arc<Mutex<Vec<Option<Box<TestCaseManager>>>>>,
     peers: Arc<Mutex<Vec<Sender<Vec<u8>>>>>,
     scheduler: Arc<Mutex<ByDeadlineWeighted>>,
-    serve_tx: Sender<HandlerMessage>,
+    handler_addr: Addr<HandlerService>,
     event_tx: Sender<EventMessage>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Message)]
+#[rtype(result = "()")]
+
 pub enum HandlerMessage {
     Judge(RequestJudge),
     DownNode(u32),
@@ -54,90 +62,103 @@ pub enum HandlerMessage {
     Unknown,
 }
 
-pub async fn serve(cfg: Config, event_tx: Sender<EventMessage>) -> Sender<HandlerMessage> {
-    let mut hasher = Sha3_256::new();
-    hasher.update(cfg.host_pass.as_bytes());
-    let key = EphemeralSecret::random(thread_rng());
-    let pubkey = key.public_key();
-    let (handler_tx, handler_rx) = unbounded();
-    let (scheduler_tx, mut scheduler_rx) = unbounded();
-    let (reversed_tx, _) = unbounded();
-    let state = Arc::new(Mutex::new(State {
-        cfg: Arc::new(Mutex::new(cfg.clone())),
-        host_pass: Arc::new(Mutex::new(hasher.finalize().to_vec())),
-        count: Mutex::new(1),
-        key: Arc::new(key),
-        shared: Arc::new(Mutex::new(vec![SharedSecret::from(
-            [0; KEY_SIZE]
-                .to_vec()
-                .into_iter()
-                .collect::<k256::FieldBytes>(),
-        )])),
-        judges: Arc::new(Mutex::new(HashMap::new())),
-        pubkey: Arc::new(Mutex::new(vec![pubkey])),
-        peers: Arc::new(Mutex::new(vec![reversed_tx])),
-        testman: Arc::new(Mutex::new(vec![None])),
-        scheduler: Arc::new(Mutex::new(ByDeadlineWeighted::new(scheduler_tx.clone()))),
-        serve_tx: handler_tx.clone(),
-        event_tx,
-    }));
-    {
-        let state_mutex = Arc::clone(&state);
-        spawn(async move { serve_scheduler(Arc::clone(&state_mutex), &mut scheduler_rx).await });
-    }
-    {
-        let state_mutex = Arc::clone(&state);
-        spawn(async move { serve_message(Arc::clone(&state_mutex), Arc::new(handler_rx)).await });
-    }
-    let (broker_tx, mut broker_rx) = unbounded();
-    {
-        let state_mutex = Arc::clone(&state);
-        let broker_cloned = broker_tx.clone();
-        let scheduler_cloned = scheduler_tx.clone();
-        spawn(async move {
-            serve_broker(scheduler_cloned, broker_cloned, &mut broker_rx, state_mutex).await
-        });
-    }
-    let listener = TcpListener::bind(cfg.host)
-        .await
-        .expect(&format!("Cannot bind {:?}", cfg.host));
-    spawn(async move {
-        listener
-            .incoming()
-            .for_each_concurrent(None, |stream| async {
-                let stream = stream.unwrap();
+#[derive(Clone)]
+pub struct HandlerService {
+    pub cfg: Config,
+    pub event_tx: Sender<EventMessage>,
+    pub state: Option<Arc<Mutex<State>>>,
+}
+
+impl Actor for HandlerService {
+    type Context = Context<Self>;
+
+    fn started(&mut self, ctx: &mut Context<Self>) {
+        info!("pms-master {}", env!("CARGO_PKG_VERSION"));
+        let mut hasher = Sha3_256::new();
+        hasher.update(self.cfg.host_pass.as_bytes());
+        let key = EphemeralSecret::random(thread_rng());
+        let pubkey = key.public_key();
+        let (scheduler_tx, mut scheduler_rx) = unbounded();
+        let (reversed_tx, _) = unbounded();
+        self.state = Some(Arc::new(Mutex::new(State {
+            cfg: Arc::new(Mutex::new(self.cfg.clone())),
+            host_pass: Arc::new(Mutex::new(hasher.finalize().to_vec())),
+            count: Mutex::new(1),
+            key: Arc::new(key),
+            shared: Arc::new(Mutex::new(vec![SharedSecret::from(
+                [0; KEY_SIZE]
+                    .to_vec()
+                    .into_iter()
+                    .collect::<k256::FieldBytes>(),
+            )])),
+            judges: Arc::new(Mutex::new(HashMap::new())),
+            pubkey: Arc::new(Mutex::new(vec![pubkey])),
+            peers: Arc::new(Mutex::new(vec![reversed_tx])),
+            testman: Arc::new(Mutex::new(vec![None])),
+            scheduler: Arc::new(Mutex::new(ByDeadlineWeighted::new(scheduler_tx.clone()))),
+            handler_addr: ctx.address(),
+            event_tx: self.event_tx.clone(),
+        })));
+        let (broker_tx, mut broker_rx) = unbounded();
+        let state = Arc::clone(self.state.as_ref().unwrap());
+        let host = self.cfg.host.clone();
+        actix::spawn(async move {
+            {
+                let state_mutex = Arc::clone(&state);
+                spawn(
+                    async move { serve_scheduler(Arc::clone(&state_mutex), &mut scheduler_rx).await },
+                );
+            }
+            {
                 let state_mutex = Arc::clone(&state);
                 let broker_cloned = broker_tx.clone();
                 let scheduler_cloned = scheduler_tx.clone();
                 spawn(async move {
-                    (state_mutex.lock().await)
-                        .handle_connection(scheduler_cloned, broker_cloned, stream)
-                        .await
+                    serve_broker(scheduler_cloned, broker_cloned, &mut broker_rx, state_mutex).await
                 });
-            })
-            .await
-    });
-    handler_tx
+            }
+            let state_mutex = Arc::clone(&state);
+            spawn(async move {
+                let listener = TcpListener::bind(host)
+                    .await
+                    .expect(&format!("Cannot bind {:?}", host));
+                listener
+                    .incoming()
+                    .for_each_concurrent(None, |stream| async {
+                        let stream = stream.unwrap();
+                        let state_mutex = Arc::clone(&state_mutex);
+                        let broker_cloned = broker_tx.clone();
+                        let scheduler_cloned = scheduler_tx.clone();
+                        spawn(async move {
+                            (state_mutex.lock().await)
+                                .handle_connection(scheduler_cloned, broker_cloned, stream)
+                                .await
+                                .ok();
+                        });
+                    })
+                    .await
+            });
+        });
+    }
 }
 
-pub async fn serve_message(state: Arc<Mutex<State>>, message_rx: Arc<Receiver<HandlerMessage>>) {
-    let message_rx = &*message_rx;
-    loop {
-        if let Ok(msg) = message_rx.try_recv() {
-            match msg {
-                HandlerMessage::Judge(judge) => {
-                    let state_mutex = Arc::clone(&state);
-                    spawn(async move { state_mutex.lock().await.req_judge(judge).await });
-                }
-                HandlerMessage::DownNode(node_id) => {
-                    let state_mutex = Arc::clone(&state);
-                    spawn(async move { state_mutex.lock().await.down_node(node_id).await });
-                }
-                HandlerMessage::Shutdown => {
-                    unimplemented!()
-                }
-                _ => {}
+impl Handler<HandlerMessage> for HandlerService {
+    type Result = ();
+
+    fn handle(&mut self, msg: HandlerMessage, ctx: &mut Context<Self>) -> Self::Result {
+        match msg {
+            HandlerMessage::Judge(judge) => {
+                let state_mutex = Arc::clone(&self.state.as_ref().unwrap());
+                spawn(async move { state_mutex.lock().await.req_judge(judge).await });
             }
+            HandlerMessage::DownNode(node_id) => {
+                let state_mutex = Arc::clone(&self.state.as_ref().unwrap());
+                spawn(async move { state_mutex.lock().await.down_node(node_id).await });
+            }
+            HandlerMessage::Shutdown => {
+                unimplemented!()
+            }
+            _ => {}
         }
     }
 }
@@ -149,7 +170,10 @@ impl State {
         broker_tx: Sender<BrokerMessage>,
         stream: TcpStream,
     ) -> async_std::io::Result<()> {
-        info!("Established connection from {:?}", stream.peer_addr());
+        info!(
+            "Established slave connection from {}",
+            stream.peer_addr().unwrap()
+        );
         let stream = Arc::new(stream);
         let packet = Packet::from_stream(Arc::clone(&stream)).await?;
         self.handle_command(scheduler_tx, broker_tx, Arc::clone(&stream), packet)
@@ -424,7 +448,7 @@ impl State {
                             )
                             .await
                         });
-                        let serve_tx = self.serve_tx.clone();
+                        let serve_tx = self.handler_addr.clone();
                         spawn(async move { check_alive(node_id, serve_tx, stream).await });
                         req_packet.send_with_sender(&mut packet_tx.clone()).await;
                         self.peers.lock().await.push(packet_tx);

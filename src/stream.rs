@@ -23,7 +23,7 @@ pub async fn serve_stream(
             packet = Packet::from_stream(Arc::clone(&stream)).fuse() => match packet {
                 Ok(packet) => {
                     let stream_cloned = Arc::clone(&stream);
-                    broker_tx.send(BrokerMessage::Packet(stream_cloned, packet)).await;
+                    broker_tx.send(BrokerMessage::Packet(stream_cloned, packet)).await.ok();
                 }
                 Err(_) => {}
             },
