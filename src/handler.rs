@@ -28,6 +28,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 use actix::prelude::*;
+use actix::dev::ToEnvelope;
 
 use crate::broker::*;
 use crate::config::Config;
@@ -37,7 +38,7 @@ use crate::scheduler::{by_deadline::ByDeadlineWeighted, *};
 use crate::stream::*;
 use crate::timer::*;
 
-pub struct State {
+pub struct State<T> where T: Actor + Handler<EventMessage>, <T as actix::Actor>::Context: ToEnvelope<T, EventMessage> {
     pub cfg: Arc<Mutex<Config>>,
     host_pass: Arc<Mutex<Vec<u8>>>,
     count: Mutex<u32>,
@@ -48,8 +49,8 @@ pub struct State {
     testman: Arc<Mutex<Vec<Option<Box<TestCaseManager>>>>>,
     peers: Arc<Mutex<Vec<Sender<Vec<u8>>>>>,
     scheduler: Arc<Mutex<ByDeadlineWeighted>>,
-    handler_addr: Addr<HandlerService>,
-    event_tx: Sender<EventMessage>,
+    handler_addr: Addr<HandlerService<T>>,
+    event_addr: Addr<T>,
 }
 
 #[derive(Clone, Debug, Message)]
@@ -63,13 +64,13 @@ pub enum HandlerMessage {
 }
 
 #[derive(Clone)]
-pub struct HandlerService {
+pub struct HandlerService<T> where T: Actor + Handler<EventMessage>, <T as actix::Actor>::Context: ToEnvelope<T, EventMessage> {
     pub cfg: Config,
-    pub event_tx: Sender<EventMessage>,
-    pub state: Option<Arc<Mutex<State>>>,
+    pub event_addr: Addr<T>,
+    pub state: Option<Arc<Mutex<State<T>>>>,
 }
 
-impl Actor for HandlerService {
+impl<T> Actor for HandlerService<T> where T: Actor + Handler<EventMessage>, <T as actix::Actor>::Context: ToEnvelope<T, EventMessage> {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Context<Self>) {
@@ -97,7 +98,7 @@ impl Actor for HandlerService {
             testman: Arc::new(Mutex::new(vec![None])),
             scheduler: Arc::new(Mutex::new(ByDeadlineWeighted::new(scheduler_tx.clone()))),
             handler_addr: ctx.address(),
-            event_tx: self.event_tx.clone(),
+            event_addr: self.event_addr.clone(),
         })));
         let (broker_tx, mut broker_rx) = unbounded();
         let state = Arc::clone(self.state.as_ref().unwrap());
@@ -142,7 +143,7 @@ impl Actor for HandlerService {
     }
 }
 
-impl Handler<HandlerMessage> for HandlerService {
+impl<T> Handler<HandlerMessage> for HandlerService<T> where T: Actor + Handler<EventMessage>, <T as actix::Actor>::Context: ToEnvelope<T, EventMessage> {
     type Result = ();
 
     fn handle(&mut self, msg: HandlerMessage, ctx: &mut Context<Self>) -> Self::Result {
@@ -163,7 +164,7 @@ impl Handler<HandlerMessage> for HandlerService {
     }
 }
 
-impl State {
+impl<T> State<T> where T: Actor + Handler<EventMessage>, <T as actix::Actor>::Context: ToEnvelope<T, EventMessage> {
     pub async fn handle_connection(
         &mut self,
         scheduler_tx: Sender<SchedulerMessage>,
@@ -301,13 +302,12 @@ impl State {
                     .with_fixint_encoding()
                     .deserialize::<BodyAfterHandshake<JudgeResponseBody>>(&packet.heady.body)
                 {
-                    self.event_tx
+                    self.event_addr
                         .send(EventMessage::JudgeResult(
                             body.req.uuid,
                             body.req.result.clone(),
                         ))
-                        .await
-                        .ok();
+                        .await.ok();
                     match body.req.result {
                         JudgeState::DoCompile => {
                             trace!(

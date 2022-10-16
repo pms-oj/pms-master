@@ -1,9 +1,12 @@
+use actix::prelude::*;
+use actix::dev::ToEnvelope;
 use async_std::channel::{Receiver, Sender};
 use async_std::net::TcpStream;
 use async_std::sync::{Arc, Mutex};
 use async_std::task::spawn;
 use judge_protocol::packet::*;
 
+use crate::event::*;
 use crate::handler::State;
 use crate::scheduler::*;
 
@@ -13,12 +16,12 @@ pub enum BrokerMessage {
     Unknown,
 }
 
-pub async fn serve_broker(
+pub async fn serve_broker<T>(
     scheduler_tx: Sender<SchedulerMessage>,
     broker_tx: Sender<BrokerMessage>,
     broker_rx: &mut Receiver<BrokerMessage>,
-    state: Arc<Mutex<State>>,
-) {
+    state: Arc<Mutex<State<T>>>,
+) where T: Actor + Handler<EventMessage>, <T as actix::Actor>::Context: ToEnvelope<T, EventMessage> {
     loop {
         if let Ok(msg) = broker_rx.try_recv() {
             match msg {
