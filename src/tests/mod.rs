@@ -35,20 +35,20 @@ fn test_ac1() {
         }
         impl Handler<EventMessage> for JudgeService {
             type Result = ();
-        fn handle(&mut self, msg: EventMessage, ctx: &mut Context<Self>) -> () {
-            debug!("{:?}", msg);
-            match msg {
-                EventMessage::JudgeResult(uuid, status) => {
-                    if let JudgeState::Accepted(test_uuid, time, mem) = status {
-                        debug!("(AC) uuid: {}, time: {}ms, mem: {}kB", test_uuid, time, mem);
-                        ctx.terminate();
+            fn handle(&mut self, msg: EventMessage, ctx: &mut Context<Self>) -> () {
+                debug!("{:?}", msg);
+                match msg {
+                    EventMessage::JudgeResult(uuid, status) => {
+                        if let JudgeState::Accepted(test_uuid, time, mem) = status {
+                            debug!("(AC) uuid: {}, time: {}ms, mem: {}kB", test_uuid, time, mem);
+                            ctx.terminate();
+                        }
                     }
+                    _ => {}
                 }
-                _ => {}
             }
         }
-        }
-        let event_addr = JudgeService{}.start();
+        let event_addr = JudgeService {}.start();
         let handler_service = HandlerService {
             state: None,
             cfg,
@@ -63,8 +63,7 @@ fn test_ac1() {
             stdout: vec![include_bytes!("../../assets/stdout/1.out").to_vec()],
             main: include_bytes!("../../assets/cpp/ac_1.cpp").to_vec(),
             checker: include_bytes!("../../assets/checker/lcmp.cpp").to_vec(),
-            main_lang_uuid: uuid::Uuid::from_str("aea02f71-ab0d-470e-9d0d-3577ec870e29")
-                .unwrap(),
+            main_lang_uuid: uuid::Uuid::from_str("aea02f71-ab0d-470e-9d0d-3577ec870e29").unwrap(),
             checker_lang_uuid: uuid::Uuid::from_str("ad9d152c-abbd-4dd2-b484-5825b6a7e4bb")
                 .unwrap(),
             time_limit: 1000,
@@ -106,20 +105,20 @@ fn test_tle1() {
         }
         impl Handler<EventMessage> for JudgeService {
             type Result = ();
-        fn handle(&mut self, msg: EventMessage, ctx: &mut Context<Self>) -> () {
-            debug!("{:?}", msg);
-            match msg {
-                EventMessage::JudgeResult(uuid, status) => {
-                    if let JudgeState::TimeLimitExceed(test_uuid) = status {
-                        debug!("(TLE) uuid: {}", test_uuid);
-                        ctx.terminate();
+            fn handle(&mut self, msg: EventMessage, ctx: &mut Context<Self>) -> () {
+                debug!("{:?}", msg);
+                match msg {
+                    EventMessage::JudgeResult(uuid, status) => {
+                        if let JudgeState::TimeLimitExceed(test_uuid) = status {
+                            debug!("(TLE) uuid: {}", test_uuid);
+                            ctx.terminate();
+                        }
                     }
+                    _ => {}
                 }
-                _ => {}
             }
         }
-        }
-        let event_addr = JudgeService{}.start();
+        let event_addr = JudgeService {}.start();
         let handler_service = HandlerService {
             state: None,
             cfg,
@@ -134,8 +133,7 @@ fn test_tle1() {
             stdout: vec![include_bytes!("../../assets/stdout/1.out").to_vec()],
             main: include_bytes!("../../assets/cpp/tle_1.cpp").to_vec(),
             checker: include_bytes!("../../assets/checker/lcmp.cpp").to_vec(),
-            main_lang_uuid: uuid::Uuid::from_str("aea02f71-ab0d-470e-9d0d-3577ec870e29")
-                .unwrap(),
+            main_lang_uuid: uuid::Uuid::from_str("aea02f71-ab0d-470e-9d0d-3577ec870e29").unwrap(),
             checker_lang_uuid: uuid::Uuid::from_str("ad9d152c-abbd-4dd2-b484-5825b6a7e4bb")
                 .unwrap(),
             time_limit: 1000,
@@ -177,20 +175,20 @@ fn test_rte1() {
         }
         impl Handler<EventMessage> for JudgeService {
             type Result = ();
-        fn handle(&mut self, msg: EventMessage, ctx: &mut Context<Self>) -> () {
-            debug!("{:?}", msg);
-            match msg {
-                EventMessage::JudgeResult(uuid, status) => {
-                    if let JudgeState::RuntimeError(test_uuid, exit_code) = status {
-                        debug!("(RTE) uuid: {}, exit code: {}", test_uuid, exit_code);
-                        ctx.terminate();
+            fn handle(&mut self, msg: EventMessage, ctx: &mut Context<Self>) -> () {
+                debug!("{:?}", msg);
+                match msg {
+                    EventMessage::JudgeResult(uuid, status) => {
+                        if let JudgeState::RuntimeError(test_uuid, exit_code) = status {
+                            debug!("(RTE) uuid: {}, exit code: {}", test_uuid, exit_code);
+                            ctx.terminate();
+                        }
                     }
+                    _ => {}
                 }
-                _ => {}
             }
         }
-        }
-        let event_addr = JudgeService{}.start();
+        let event_addr = JudgeService {}.start();
         let handler_service = HandlerService {
             state: None,
             cfg,
@@ -205,8 +203,7 @@ fn test_rte1() {
             stdout: vec![include_bytes!("../../assets/stdout/1.out").to_vec()],
             main: include_bytes!("../../assets/cpp/rte_1.cpp").to_vec(),
             checker: include_bytes!("../../assets/checker/lcmp.cpp").to_vec(),
-            main_lang_uuid: uuid::Uuid::from_str("aea02f71-ab0d-470e-9d0d-3577ec870e29")
-                .unwrap(),
+            main_lang_uuid: uuid::Uuid::from_str("aea02f71-ab0d-470e-9d0d-3577ec870e29").unwrap(),
             checker_lang_uuid: uuid::Uuid::from_str("ad9d152c-abbd-4dd2-b484-5825b6a7e4bb")
                 .unwrap(),
             time_limit: 1000,

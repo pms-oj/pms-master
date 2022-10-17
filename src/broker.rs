@@ -1,5 +1,5 @@
-use actix::prelude::*;
 use actix::dev::ToEnvelope;
+use actix::prelude::*;
 use async_std::channel::{Receiver, Sender};
 use async_std::net::TcpStream;
 use async_std::sync::{Arc, Mutex};
@@ -21,7 +21,10 @@ pub async fn serve_broker<T>(
     broker_tx: Sender<BrokerMessage>,
     broker_rx: &mut Receiver<BrokerMessage>,
     state: Arc<Mutex<State<T>>>,
-) where T: Actor + Handler<EventMessage>, <T as actix::Actor>::Context: ToEnvelope<T, EventMessage> {
+) where
+    T: Actor + Handler<EventMessage>,
+    <T as actix::Actor>::Context: ToEnvelope<T, EventMessage>,
+{
     loop {
         if let Ok(msg) = broker_rx.try_recv() {
             match msg {

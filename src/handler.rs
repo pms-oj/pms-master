@@ -27,8 +27,8 @@ use std::collections::HashMap;
 
 use uuid::Uuid;
 
-use actix::prelude::*;
 use actix::dev::ToEnvelope;
+use actix::prelude::*;
 
 use crate::broker::*;
 use crate::config::Config;
@@ -38,7 +38,11 @@ use crate::scheduler::{by_deadline::ByDeadlineWeighted, *};
 use crate::stream::*;
 use crate::timer::*;
 
-pub struct State<T> where T: Actor + Handler<EventMessage>, <T as actix::Actor>::Context: ToEnvelope<T, EventMessage> {
+pub struct State<T>
+where
+    T: Actor + Handler<EventMessage>,
+    <T as actix::Actor>::Context: ToEnvelope<T, EventMessage>,
+{
     pub cfg: Arc<Mutex<Config>>,
     host_pass: Arc<Mutex<Vec<u8>>>,
     count: Mutex<u32>,
@@ -64,13 +68,21 @@ pub enum HandlerMessage {
 }
 
 #[derive(Clone)]
-pub struct HandlerService<T> where T: Actor + Handler<EventMessage>, <T as actix::Actor>::Context: ToEnvelope<T, EventMessage> {
+pub struct HandlerService<T>
+where
+    T: Actor + Handler<EventMessage>,
+    <T as actix::Actor>::Context: ToEnvelope<T, EventMessage>,
+{
     pub cfg: Config,
     pub event_addr: Addr<T>,
     pub state: Option<Arc<Mutex<State<T>>>>,
 }
 
-impl<T> Actor for HandlerService<T> where T: Actor + Handler<EventMessage>, <T as actix::Actor>::Context: ToEnvelope<T, EventMessage> {
+impl<T> Actor for HandlerService<T>
+where
+    T: Actor + Handler<EventMessage>,
+    <T as actix::Actor>::Context: ToEnvelope<T, EventMessage>,
+{
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Context<Self>) {
@@ -143,7 +155,11 @@ impl<T> Actor for HandlerService<T> where T: Actor + Handler<EventMessage>, <T a
     }
 }
 
-impl<T> Handler<HandlerMessage> for HandlerService<T> where T: Actor + Handler<EventMessage>, <T as actix::Actor>::Context: ToEnvelope<T, EventMessage> {
+impl<T> Handler<HandlerMessage> for HandlerService<T>
+where
+    T: Actor + Handler<EventMessage>,
+    <T as actix::Actor>::Context: ToEnvelope<T, EventMessage>,
+{
     type Result = ();
 
     fn handle(&mut self, msg: HandlerMessage, ctx: &mut Context<Self>) -> Self::Result {
@@ -164,7 +180,11 @@ impl<T> Handler<HandlerMessage> for HandlerService<T> where T: Actor + Handler<E
     }
 }
 
-impl<T> State<T> where T: Actor + Handler<EventMessage>, <T as actix::Actor>::Context: ToEnvelope<T, EventMessage> {
+impl<T> State<T>
+where
+    T: Actor + Handler<EventMessage>,
+    <T as actix::Actor>::Context: ToEnvelope<T, EventMessage>,
+{
     pub async fn handle_connection(
         &mut self,
         scheduler_tx: Sender<SchedulerMessage>,
@@ -307,7 +327,8 @@ impl<T> State<T> where T: Actor + Handler<EventMessage>, <T as actix::Actor>::Co
                             body.req.uuid,
                             body.req.result.clone(),
                         ))
-                        .await.ok();
+                        .await
+                        .ok();
                     match body.req.result {
                         JudgeState::DoCompile => {
                             trace!(

@@ -2,8 +2,8 @@ pub mod by_deadline;
 
 use uuid::Uuid;
 
-use actix::prelude::*;
 use actix::dev::ToEnvelope;
+use actix::prelude::*;
 
 use async_std::channel::{Receiver, Sender};
 use async_std::sync::{Arc, Mutex};
@@ -39,7 +39,10 @@ pub trait SchedulerWeighted {
 pub async fn serve_scheduler<T>(
     state: Arc<Mutex<State<T>>>,
     scheduler_rx: &mut Receiver<SchedulerMessage>,
-) where T: Actor + Handler<EventMessage>, <T as actix::Actor>::Context: ToEnvelope<T, EventMessage> {
+) where
+    T: Actor + Handler<EventMessage>,
+    <T as actix::Actor>::Context: ToEnvelope<T, EventMessage>,
+{
     loop {
         if let Ok(msg) = scheduler_rx.try_recv() {
             match msg {
