@@ -57,6 +57,11 @@ where
     event_addr: Addr<T>,
 }
 
+#[derive(Clone, Debug, MessageResponse)]
+pub enum HandlerResponse {
+    None,
+}
+
 #[derive(Clone, Debug, Message)]
 #[rtype(result = "()")]
 
@@ -132,7 +137,7 @@ where
             }
             let state_mutex = Arc::clone(&state);
             spawn(async move {
-                let listener = TcpListener::bind(host)
+                let listener = TcpListener::bind(host.clone())
                     .await
                     .expect(&format!("Cannot bind {:?}", host));
                 listener

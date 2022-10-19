@@ -24,7 +24,7 @@ fn test_ac1() {
         use std::time::Duration;
         sleep(Duration::from_secs(1)).await;
         let cfg = Config {
-            host: SocketAddr::from_str("127.0.0.1:3030").unwrap(),
+            host: "127.0.0.1:3030".to_string(),
             host_pass: String::from("asdf"),
         };
         let judge_uuid = uuid::Uuid::new_v4();
@@ -94,7 +94,7 @@ fn test_tle1() {
         use std::time::Duration;
         sleep(Duration::from_secs(1)).await;
         let cfg = Config {
-            host: SocketAddr::from_str("127.0.0.1:3030").unwrap(),
+            host: "127.0.0.1:3030".to_string(),
             host_pass: String::from("asdf"),
         };
         let judge_uuid = uuid::Uuid::new_v4();
@@ -164,7 +164,7 @@ fn test_rte1() {
         use std::time::Duration;
         sleep(Duration::from_secs(1)).await;
         let cfg = Config {
-            host: SocketAddr::from_str("127.0.0.1:3030").unwrap(),
+            host: "127.0.0.1:3030".to_string(),
             host_pass: String::from("asdf"),
         };
         let judge_uuid = uuid::Uuid::new_v4();
