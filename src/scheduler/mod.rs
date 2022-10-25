@@ -6,6 +6,7 @@ use actix::dev::ToEnvelope;
 use actix::prelude::*;
 
 use async_std::channel::{Receiver, Sender};
+use async_std::path::Path;
 use async_std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 
@@ -36,12 +37,13 @@ pub trait SchedulerWeighted {
     async fn touch(&mut self, node_id: usize) -> SchedulerResult<()>;
 }
 
-pub async fn serve_scheduler<T>(
-    state: Arc<Mutex<State<T>>>,
+pub async fn serve_scheduler<T, P>(
+    state: Arc<Mutex<State<T, P>>>,
     scheduler_rx: &mut Receiver<SchedulerMessage>,
 ) where
     T: Actor + Handler<EventMessage>,
     <T as actix::Actor>::Context: ToEnvelope<T, EventMessage>,
+    P: AsRef<Path> + 'static + Send + Sync + Clone,
 {
     loop {
         if let Ok(msg) = scheduler_rx.try_recv() {

@@ -1,8 +1,11 @@
+use async_compression::futures::write::BrotliEncoder;
 use async_std::channel::{unbounded, Receiver, Sender};
 use async_std::io::{Error, ErrorKind};
 use async_std::net::{TcpListener, TcpStream};
+use async_std::path::Path;
 use async_std::sync::*;
 use async_std::task::spawn;
+use async_tar::Builder;
 
 use bincode::Options;
 
@@ -33,15 +36,16 @@ use actix::prelude::*;
 use crate::broker::*;
 use crate::config::Config;
 use crate::event::*;
-use crate::judge::{RequestJudge, TestCaseManager};
+use crate::judge::{JudgementType, RequestJudge, TestCaseManager};
 use crate::scheduler::{by_deadline::ByDeadlineWeighted, *};
 use crate::stream::*;
 use crate::timer::*;
 
-pub struct State<T>
+pub struct State<T, P>
 where
     T: Actor + Handler<EventMessage>,
     <T as actix::Actor>::Context: ToEnvelope<T, EventMessage>,
+    P: AsRef<Path> + 'static + Send + Sync + Clone,
 {
     pub cfg: Arc<Mutex<Config>>,
     host_pass: Arc<Mutex<Vec<u8>>>,
@@ -49,11 +53,11 @@ where
     key: Arc<EphemeralSecret>,
     pubkey: Arc<Mutex<Vec<PublicKey>>>,
     shared: Arc<Mutex<Vec<SharedSecret>>>,
-    judges: Arc<Mutex<HashMap<Uuid, RequestJudge>>>,
-    testman: Arc<Mutex<Vec<Option<Box<TestCaseManager>>>>>,
+    judges: Arc<Mutex<HashMap<Uuid, RequestJudge<P>>>>,
+    testman: Arc<Mutex<Vec<Option<Box<TestCaseManager<P>>>>>>,
     peers: Arc<Mutex<Vec<Sender<Vec<u8>>>>>,
     scheduler: Arc<Mutex<ByDeadlineWeighted>>,
-    handler_addr: Addr<HandlerService<T>>,
+    handler_addr: Addr<HandlerService<T, P>>,
     event_addr: Addr<T>,
 }
 
@@ -65,28 +69,30 @@ pub enum HandlerResponse {
 #[derive(Clone, Debug, Message)]
 #[rtype(result = "()")]
 
-pub enum HandlerMessage {
-    Judge(RequestJudge),
+pub enum HandlerMessage<P> {
+    Judge(RequestJudge<P>),
     DownNode(u32),
     Shutdown,
     Unknown,
 }
 
 #[derive(Clone)]
-pub struct HandlerService<T>
+pub struct HandlerService<T, P>
 where
     T: Actor + Handler<EventMessage>,
     <T as actix::Actor>::Context: ToEnvelope<T, EventMessage>,
+    P: AsRef<Path> + 'static + Send + Sync + Clone,
 {
     pub cfg: Config,
     pub event_addr: Addr<T>,
-    pub state: Option<Arc<Mutex<State<T>>>>,
+    pub state: Option<Arc<Mutex<State<T, P>>>>,
 }
 
-impl<T> Actor for HandlerService<T>
+impl<T, P> Actor for HandlerService<T, P>
 where
     T: Actor + Handler<EventMessage>,
     <T as actix::Actor>::Context: ToEnvelope<T, EventMessage>,
+    P: AsRef<Path> + 'static + Send + Sync + Clone,
 {
     type Context = Context<Self>;
 
@@ -160,14 +166,15 @@ where
     }
 }
 
-impl<T> Handler<HandlerMessage> for HandlerService<T>
+impl<T, P> Handler<HandlerMessage<P>> for HandlerService<T, P>
 where
     T: Actor + Handler<EventMessage>,
     <T as actix::Actor>::Context: ToEnvelope<T, EventMessage>,
+    P: AsRef<Path> + 'static + Send + Sync + Clone,
 {
     type Result = ();
 
-    fn handle(&mut self, msg: HandlerMessage, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: HandlerMessage<P>, ctx: &mut Context<Self>) -> Self::Result {
         match msg {
             HandlerMessage::Judge(judge) => {
                 let state_mutex = Arc::clone(&self.state.as_ref().unwrap());
@@ -185,10 +192,11 @@ where
     }
 }
 
-impl<T> State<T>
+impl<T, P> State<T, P>
 where
     T: Actor + Handler<EventMessage>,
     <T as actix::Actor>::Context: ToEnvelope<T, EventMessage>,
+    P: AsRef<Path> + 'static + Send + Sync + Clone,
 {
     pub async fn handle_connection(
         &mut self,
@@ -206,7 +214,7 @@ where
             .await
     }
 
-    pub async fn req_judge(&mut self, judge: RequestJudge) -> SchedulerResult<()> {
+    pub async fn req_judge(&mut self, judge: RequestJudge<P>) -> SchedulerResult<()> {
         let estimated_time = (judge.test_size as u64) * judge.time_limit;
         let _ = self
             .scheduler
@@ -228,27 +236,80 @@ where
         let judge = judges.get(&uuid).unwrap();
         let shared = &(*self.shared.lock().await)[node_id as usize];
         let key = expand_key(&shared);
-        let body = JudgeRequestBody {
-            uuid: judge.uuid,
-            main_lang: judge.main_lang_uuid,
-            checker_lang: judge.checker_lang_uuid,
-            checker_code: EncMessage::generate(&key, &judge.checker),
-            main_code: EncMessage::generate(&key, &judge.main),
-            mem_limit: judge.mem_limit,
-            time_limit: judge.time_limit,
-        };
-        self.testman.lock().await[node_id as usize] =
-            Some(Box::new(TestCaseManager::from(&judge.stdin, &judge.stdout)));
-        let packet = Packet::make_packet(
-            Command::GetJudge,
-            bincode::DefaultOptions::new()
-                .with_big_endian()
-                .with_fixint_encoding()
-                .serialize(&body)
-                .unwrap(),
-        );
-        packet.send_with_sender(&mut sender).await;
-        Ok(())
+        match judge.judgement_type {
+            JudgementType::Simple => {
+                let body = JudgeRequestBody {
+                    uuid: judge.uuid,
+                    main_lang: judge.main_lang_uuid,
+                    checker_lang: judge.checker_lang_uuid,
+                    checker_code: EncMessage::generate(&key, &judge.checker),
+                    main_code: EncMessage::generate(&key, &judge.main),
+                    manager_code: None,
+                    manager_lang: None,
+                    graders: None,
+                    mem_limit: judge.mem_limit,
+                    time_limit: judge.time_limit,
+                };
+                self.testman.lock().await[node_id as usize] =
+                    Some(Box::new(TestCaseManager::from(&judge.stdin, &judge.stdout)));
+                let packet = Packet::make_packet(
+                    Command::GetJudge,
+                    bincode::DefaultOptions::new()
+                        .with_big_endian()
+                        .with_fixint_encoding()
+                        .serialize(&body)
+                        .unwrap(),
+                );
+                packet.send_with_sender(&mut sender).await;
+                Ok(())
+            }
+            JudgementType::Novel => {
+                let graders_encoder = BrotliEncoder::new(Vec::new());
+                let mut graders = Builder::new(graders_encoder);
+                graders
+                    .append_dir_all("graders", judge.graders.as_ref().expect("No grader found"))
+                    .await
+                    .ok();
+                let graders_data = graders
+                    .into_inner()
+                    .await
+                    .expect("Failed to make tar archive")
+                    .into_inner();
+                if judge.manager.is_none() {
+                    panic!("Judgement manager is not included!");
+                }
+                if judge.manager_lang_uuid.is_none() {
+                    panic!("Judgement manager language is not included!");
+                }
+                let body = JudgeRequestBody {
+                    uuid: judge.uuid,
+                    main_lang: judge.main_lang_uuid,
+                    checker_lang: judge.checker_lang_uuid,
+                    checker_code: EncMessage::generate(&key, &judge.checker),
+                    main_code: EncMessage::generate(&key, &judge.main),
+                    manager_code: judge
+                        .manager
+                        .as_ref()
+                        .map(|msg| EncMessage::generate(&key, &msg)),
+                    manager_lang: judge.manager_lang_uuid,
+                    graders: Some(EncMessage::generate(&key, &graders_data)),
+                    mem_limit: judge.mem_limit,
+                    time_limit: judge.time_limit,
+                };
+                self.testman.lock().await[node_id as usize] =
+                    Some(Box::new(TestCaseManager::from(&judge.stdin, &judge.stdout)));
+                let packet = Packet::make_packet(
+                    Command::GetJudge,
+                    bincode::DefaultOptions::new()
+                        .with_big_endian()
+                        .with_fixint_encoding()
+                        .serialize(&body)
+                        .unwrap(),
+                );
+                packet.send_with_sender(&mut sender).await;
+                Ok(())
+            }
+        }
     }
 
     async fn unlock_slave(&mut self, node_id: u32) {
@@ -281,12 +342,16 @@ where
         } else {
             let testman = self.testman.lock().await;
             let key = expand_key(&self.shared.lock().await[node_id as usize]);
-            let (stdin, stdout) = testman[node_id as usize].as_ref().unwrap().get(test_uuid);
+            let (stdin, stdout) = testman[node_id as usize]
+                .as_ref()
+                .unwrap()
+                .get(test_uuid)
+                .expect("Failed to read stdin, stdout");
             let body = TestCaseUpdateBody {
                 uuid: judge_uuid,
                 test_uuid,
-                stdin: EncMessage::generate(&key, stdin),
-                stdout: EncMessage::generate(&key, stdout),
+                stdin: EncMessage::generate(&key, &stdin),
+                stdout: EncMessage::generate(&key, &stdout),
             };
             let packet = Packet::make_packet(
                 Command::TestCaseUpdate,

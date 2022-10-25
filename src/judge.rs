@@ -1,15 +1,31 @@
+use async_std::fs::read;
+use async_std::path::Path;
+use async_std::task::block_on;
+
 use std::collections::HashMap;
+use std::fmt::Debug;
+use std::io;
 use uuid::Uuid;
 
+#[derive(Clone, Debug, Copy)]
+pub enum JudgementType {
+    Simple,
+    Novel,
+}
+
 #[derive(Clone, Debug)]
-pub struct RequestJudge {
+pub struct RequestJudge<P> {
     pub uuid: Uuid,
     pub judge_priority: PrioirityWeight,
     pub test_size: usize,
-    pub stdin: Vec<Vec<u8>>,
-    pub stdout: Vec<Vec<u8>>,
+    pub stdin: Vec<P>,
+    pub stdout: Vec<P>,
     pub main: Vec<u8>,
     pub checker: Vec<u8>,
+    pub manager: Option<Vec<u8>>,
+    pub graders: Option<P>,
+    pub judgement_type: JudgementType,
+    pub manager_lang_uuid: Option<Uuid>,
     pub main_lang_uuid: Uuid,
     pub checker_lang_uuid: Uuid,
     pub time_limit: u64,
@@ -29,14 +45,17 @@ pub enum TestCaseState {
 }
 
 // not an iterator!
-pub struct TestCaseManager {
-    tests: HashMap<Uuid, (Vec<u8>, Vec<u8>)>,
+pub struct TestCaseManager<P> {
+    tests: HashMap<Uuid, (P, P)>,
     uuid_map: HashMap<Uuid, TestCaseState>,
     pub cur: Uuid,
 }
 
-impl TestCaseManager {
-    pub fn from(stdin: &[Vec<u8>], stdout: &[Vec<u8>]) -> Self {
+impl<P> TestCaseManager<P>
+where
+    P: AsRef<Path> + Clone,
+{
+    pub fn from(stdin: &[P], stdout: &[P]) -> Self {
         let mut testman = TestCaseManager {
             tests: HashMap::new(),
             uuid_map: HashMap::new(),
@@ -74,7 +93,11 @@ impl TestCaseManager {
         }
     }
 
-    pub fn get(&self, test_uuid: Uuid) -> &(Vec<u8>, Vec<u8>) {
-        self.tests.get(&test_uuid).unwrap()
+    pub fn get(&self, test_uuid: Uuid) -> io::Result<(Vec<u8>, Vec<u8>)> {
+        block_on(async {
+            let (stdin, stdout) = self.tests.get(&test_uuid).unwrap();
+            let (stdin_f, stdout_f) = (read(&stdin).await?, read(&stdout).await?);
+            Ok((stdin_f, stdout_f))
+        })
     }
 }

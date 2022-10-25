@@ -2,6 +2,7 @@ use actix::dev::ToEnvelope;
 use actix::prelude::*;
 use async_std::channel::{Receiver, Sender};
 use async_std::net::TcpStream;
+use async_std::path::Path;
 use async_std::sync::{Arc, Mutex};
 use async_std::task::spawn;
 use judge_protocol::packet::*;
@@ -16,14 +17,15 @@ pub enum BrokerMessage {
     Unknown,
 }
 
-pub async fn serve_broker<T>(
+pub async fn serve_broker<T, P>(
     scheduler_tx: Sender<SchedulerMessage>,
     broker_tx: Sender<BrokerMessage>,
     broker_rx: &mut Receiver<BrokerMessage>,
-    state: Arc<Mutex<State<T>>>,
+    state: Arc<Mutex<State<T, P>>>,
 ) where
     T: Actor + Handler<EventMessage>,
     <T as actix::Actor>::Context: ToEnvelope<T, EventMessage>,
+    P: AsRef<Path> + 'static + Send + Sync + Clone,
 {
     loop {
         if let Ok(msg) = broker_rx.try_recv() {
