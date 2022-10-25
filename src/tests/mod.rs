@@ -67,7 +67,8 @@ fn test_ac1() {
             manager_lang_uuid: None,
             graders: None,
             judgement_type: JudgementType::Simple,
-            relation_grader_path_main: None,
+            main_path: None,
+            object_path: None,
             main_lang_uuid: uuid::Uuid::from_str("aea02f71-ab0d-470e-9d0d-3577ec870e29").unwrap(),
             checker_lang_uuid: uuid::Uuid::from_str("ad9d152c-abbd-4dd2-b484-5825b6a7e4bb")
                 .unwrap(),
@@ -142,7 +143,8 @@ fn test_tle1() {
             manager_lang_uuid: None,
             graders: None,
             judgement_type: JudgementType::Simple,
-            relation_grader_path_main: None,
+            main_path: None,
+            object_path: None,
             main_lang_uuid: uuid::Uuid::from_str("aea02f71-ab0d-470e-9d0d-3577ec870e29").unwrap(),
             checker_lang_uuid: uuid::Uuid::from_str("ad9d152c-abbd-4dd2-b484-5825b6a7e4bb")
                 .unwrap(),
@@ -217,7 +219,8 @@ fn test_rte1() {
             manager_lang_uuid: None,
             graders: None,
             judgement_type: JudgementType::Simple,
-            relation_grader_path_main: None,
+            main_path: None,
+            object_path: None,
             main_lang_uuid: uuid::Uuid::from_str("aea02f71-ab0d-470e-9d0d-3577ec870e29").unwrap(),
             checker_lang_uuid: uuid::Uuid::from_str("ad9d152c-abbd-4dd2-b484-5825b6a7e4bb")
                 .unwrap(),

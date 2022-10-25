@@ -35,6 +35,7 @@ use actix::prelude::*;
 
 use crate::broker::*;
 use crate::config::Config;
+use crate::constants::*;
 use crate::event::*;
 use crate::judge::{JudgementType, RequestJudge, TestCaseManager};
 use crate::scheduler::{by_deadline::ByDeadlineWeighted, *};
@@ -244,10 +245,6 @@ where
                     checker_lang: judge.checker_lang_uuid,
                     checker_code: EncMessage::generate(&key, &judge.checker),
                     main_code: EncMessage::generate(&key, &judge.main),
-                    manager_code: None,
-                    manager_lang: None,
-                    graders: None,
-                    relation_grader_path_main: None,
                     mem_limit: judge.mem_limit,
                     time_limit: judge.time_limit,
                 };
@@ -276,32 +273,43 @@ where
                     .await
                     .expect("Failed to make tar archive")
                     .into_inner();
-                if judge.manager.is_none() {
-                    panic!("Judgement manager is not included!");
-                }
-                if judge.manager_lang_uuid.is_none() {
-                    panic!("Judgement manager language is not included!");
-                }
-                let body = JudgeRequestBody {
+                let body = JudgeRequestBodyv2 {
                     uuid: judge.uuid,
                     main_lang: judge.main_lang_uuid,
                     checker_lang: judge.checker_lang_uuid,
                     checker_code: EncMessage::generate(&key, &judge.checker),
                     main_code: EncMessage::generate(&key, &judge.main),
-                    manager_code: judge
-                        .manager
-                        .as_ref()
-                        .map(|msg| EncMessage::generate(&key, &msg)),
-                    manager_lang: judge.manager_lang_uuid,
-                    relation_grader_path_main: judge.relation_grader_path_main.clone(),
-                    graders: Some(EncMessage::generate(&key, &graders_data)),
+                    manager_code: EncMessage::generate(
+                        &key,
+                        &judge.manager.clone().expect("No manager found"),
+                    ),
+                    manager_lang: judge
+                        .manager_lang_uuid
+                        .expect("No manager language uuid found"),
+                    main_path: judge.main_path.clone().unwrap_or_else(|| {
+                        let path = String::from(DEFAULT_MAIN_PATH);
+                        warn!(
+                            "No relation main file path found. use default value: {}",
+                            &path
+                        );
+                        path
+                    }),
+                    object_path: judge.object_path.clone().unwrap_or_else(|| {
+                        let path = String::from(DEFAULT_OBJECT_PATH);
+                        warn!(
+                            "No relation main file path found. use default value: {}",
+                            &path
+                        );
+                        path
+                    }),
+                    graders: EncMessage::generate(&key, &graders_data),
                     mem_limit: judge.mem_limit,
                     time_limit: judge.time_limit,
                 };
                 self.testman.lock().await[node_id as usize] =
                     Some(Box::new(TestCaseManager::from(&judge.stdin, &judge.stdout)));
                 let packet = Packet::make_packet(
-                    Command::GetJudge,
+                    Command::GetJudgev2,
                     bincode::DefaultOptions::new()
                         .with_big_endian()
                         .with_fixint_encoding()
