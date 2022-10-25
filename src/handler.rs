@@ -247,6 +247,7 @@ where
                     manager_code: None,
                     manager_lang: None,
                     graders: None,
+                    relation_grader_path_main: None,
                     mem_limit: judge.mem_limit,
                     time_limit: judge.time_limit,
                 };
@@ -292,6 +293,7 @@ where
                         .as_ref()
                         .map(|msg| EncMessage::generate(&key, &msg)),
                     manager_lang: judge.manager_lang_uuid,
+                    relation_grader_path_main: judge.relation_grader_path_main.clone(),
                     graders: Some(EncMessage::generate(&key, &graders_data)),
                     mem_limit: judge.mem_limit,
                     time_limit: judge.time_limit,
