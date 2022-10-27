@@ -263,7 +263,7 @@ where
             }
             JudgementType::Novel => {
                 let graders_encoder = BrotliEncoder::new(Vec::new());
-                let mut graders = Builder::new(graders_encoder);
+                let mut graders = Builder::new(Vec::new());
                 graders
                     .append_dir_all("graders", judge.graders.as_ref().expect("No grader found"))
                     .await
@@ -271,8 +271,8 @@ where
                 let graders_data = graders
                     .into_inner()
                     .await
-                    .expect("Failed to make tar archive")
-                    .into_inner();
+                    .expect("Failed to make tar archive");
+                dbg!(graders_data.clone());
                 let body = JudgeRequestBodyv2 {
                     uuid: judge.uuid,
                     main_lang: judge.main_lang_uuid,
