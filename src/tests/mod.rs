@@ -39,10 +39,18 @@ fn test_ac_prize() {
                 debug!("{:?}", msg);
                 match msg {
                     EventMessage::JudgeResult(uuid, status) => {
-                        if let JudgeState::Accepted(test_uuid, time, mem) = status {
-                            debug!("(AC) uuid: {}, time: {}ms, mem: {}kB", test_uuid, time, mem);
-                            ctx.terminate();
+                        match status {
+                            JudgeState::Accepted(test_uuid, time, mem) => {
+                                debug!("(AC) uuid: {}, time: {}ms, mem: {}kB", test_uuid, time, mem);
+                            }
+                            JudgeState::Complete(test_uuid, score, time, mem) => {
+                                debug!("(PC) uuid: {}, score: {}, time: {}ms, mem: {}kB", test_uuid, score, time, mem);
+                            }
+                            _ => {}
                         }
+                    }
+                    EventMessage::EndJudge(uuid) => {
+                        ctx.terminate();
                     }
                     _ => {}
                 }
@@ -58,9 +66,9 @@ fn test_ac_prize() {
         addr.send(HandlerMessage::Judge(RequestJudge {
             uuid: judge_uuid,
             judge_priority: PrioirityWeight::First,
-            test_size: 1,
-            stdin: vec!["assets/prize/stdin/1.in"],
-            stdout: vec!["assets/prize/stdout/1.out"],
+            test_size: 3,
+            stdin: vec!["assets/prize/stdin/1.in", "assets/prize/stdin/2.in", "assets/prize/stdin/3.in"],
+            stdout: vec!["assets/prize/stdout/1.out", "assets/prize/stdout/2.out", "assets/prize/stdout/3.out"],
             main: include_bytes!("../../assets/prize/cpp/ac_optimal.cpp").to_vec(),
             checker: include_bytes!("../../assets/prize/checker/checker.cpp").to_vec(),
             manager: Some(include_bytes!("../../assets/prize/graders/manager.cpp").to_vec()),
