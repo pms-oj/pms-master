@@ -64,7 +64,9 @@ fn test_ac_prize() {
             main: include_bytes!("../../assets/prize/cpp/ac_optimal.cpp").to_vec(),
             checker: include_bytes!("../../assets/prize/checker/checker.cpp").to_vec(),
             manager: Some(include_bytes!("../../assets/prize/graders/manager.cpp").to_vec()),
-            manager_lang_uuid: Some(uuid::Uuid::from_str("ad9d152c-abbd-4dd2-b484-5825b6a7e4bb").unwrap()),
+            manager_lang_uuid: Some(
+                uuid::Uuid::from_str("ad9d152c-abbd-4dd2-b484-5825b6a7e4bb").unwrap(),
+            ),
             graders: Some("assets/prize/graders/cpp"),
             judgement_type: JudgementType::Novel,
             main_path: Some(String::from("prize.cpp")),

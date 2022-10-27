@@ -436,6 +436,14 @@ where
                             self.unlock_slave(body.node_id).await;
                             Ok(())
                         }
+                        JudgeState::Complete(test_uuid, score, time, mem) => {
+                            trace!("[node#{}] (Judge: {}) (Test: {}) master has recived report PC of main code. score: {}, time: {}ms, mem: {}kB", body.node_id, body.req.uuid, test_uuid, score, time, mem);
+                            let mut tx = self.peers.lock().await[body.node_id as usize].clone();
+                            let _ = self
+                                .send_testcase(&mut tx, body.req.uuid, body.node_id)
+                                .await;
+                            Ok(())
+                        }
                         JudgeState::Accepted(test_uuid, time, mem) => {
                             trace!("[node#{}] (Judge: {}) (Test: {}) master has recived report AC of main code. time: {}ms, mem: {}kB", body.node_id, body.req.uuid, test_uuid, time, mem);
                             let mut tx = self.peers.lock().await[body.node_id as usize].clone();
