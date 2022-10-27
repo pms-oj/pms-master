@@ -262,7 +262,6 @@ where
                 Ok(())
             }
             JudgementType::Novel => {
-                let graders_encoder = BrotliEncoder::new(Vec::new());
                 let mut graders = Builder::new(Vec::new());
                 graders
                     .append_dir_all("graders", judge.graders.as_ref().expect("No grader found"))
@@ -272,7 +271,7 @@ where
                     .into_inner()
                     .await
                     .expect("Failed to make tar archive");
-                dbg!(graders_data.clone());
+                let graders_encoder = BrotliEncoder::new(graders_data);
                 let body = JudgeRequestBodyv2 {
                     uuid: judge.uuid,
                     main_lang: judge.main_lang_uuid,
@@ -302,7 +301,7 @@ where
                         );
                         path
                     }),
-                    graders: EncMessage::generate(&key, &graders_data),
+                    graders: EncMessage::generate(&key, &graders_encoder.into_inner()),
                     mem_limit: judge.mem_limit,
                     time_limit: judge.time_limit,
                 };
