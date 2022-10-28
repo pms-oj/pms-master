@@ -24,8 +24,6 @@ use log::*;
 
 use rand::thread_rng;
 
-use sha3::{Digest, Sha3_256};
-
 use std::collections::HashMap;
 
 use uuid::Uuid;
@@ -48,8 +46,8 @@ where
     <T as actix::Actor>::Context: ToEnvelope<T, EventMessage>,
     P: AsRef<Path> + 'static + Send + Sync + Clone,
 {
-    pub cfg: Arc<Mutex<Config>>,
-    host_pass: Arc<Mutex<Vec<u8>>>,
+    pub cfg: Arc<Config>,
+    host_pass: Arc<Vec<u8>>,
     count: Mutex<u32>,
     key: Arc<EphemeralSecret>,
     pubkey: Arc<Mutex<Vec<PublicKey>>>,
@@ -99,15 +97,13 @@ where
 
     fn started(&mut self, ctx: &mut Context<Self>) {
         info!("pms-master {}", env!("CARGO_PKG_VERSION"));
-        let mut hasher = Sha3_256::new();
-        hasher.update(self.cfg.host_pass.as_bytes());
         let key = EphemeralSecret::random(thread_rng());
         let pubkey = key.public_key();
         let (scheduler_tx, mut scheduler_rx) = unbounded();
         let (reversed_tx, _) = unbounded();
         self.state = Some(Arc::new(Mutex::new(State {
-            cfg: Arc::new(Mutex::new(self.cfg.clone())),
-            host_pass: Arc::new(Mutex::new(hasher.finalize().to_vec())),
+            cfg: Arc::new(self.cfg.clone()),
+            host_pass: Arc::new(blake3::hash(self.cfg.host_pass.as_bytes()).as_bytes().to_vec()),
             count: Mutex::new(1),
             key: Arc::new(key),
             shared: Arc::new(Mutex::new(vec![SharedSecret::from(
@@ -522,7 +518,7 @@ where
                     .with_fixint_encoding()
                     .deserialize::<HandshakeRequest>(&packet.heady.body)
                 {
-                    if handshake_req.pass == *self.host_pass.lock().await {
+                    if handshake_req.pass == *self.host_pass {
                         trace!("Handshake");
                         self.shared
                             .lock()
