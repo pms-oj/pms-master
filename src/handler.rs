@@ -304,6 +304,7 @@ where
                     graders: EncMessage::generate(&key, &graders_encoder.into_inner()),
                     mem_limit: judge.mem_limit,
                     time_limit: judge.time_limit,
+                    procs: judge.procs.unwrap_or_else(|| DEFAULT_PROCESSES),
                 };
                 self.testman.lock().await[node_id as usize] =
                     Some(Box::new(TestCaseManager::from(&judge.stdin, &judge.stdout)));
@@ -347,7 +348,10 @@ where
             let packet = Packet::make_packet(Command::TestCaseEnd, vec![]);
             packet.send_with_sender(stream).await;
             self.unlock_slave(node_id).await;
-            self.event_addr.send(EventMessage::EndJudge(judge_uuid)).await.ok();
+            self.event_addr
+                .send(EventMessage::EndJudge(judge_uuid))
+                .await
+                .ok();
             false
         } else {
             let testman = self.testman.lock().await;

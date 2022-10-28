@@ -28,6 +28,7 @@ pub struct RequestJudge<P> {
     pub manager: Option<Vec<u8>>,
     pub graders: Option<P>,
     pub manager_lang_uuid: Option<Uuid>,
+    pub procs: Option<usize>,
     pub main_lang_uuid: Uuid,
     pub checker_lang_uuid: Uuid,
     pub time_limit: u64,

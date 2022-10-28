@@ -38,17 +38,18 @@ fn test_ac_prize() {
             fn handle(&mut self, msg: EventMessage, ctx: &mut Context<Self>) -> () {
                 debug!("{:?}", msg);
                 match msg {
-                    EventMessage::JudgeResult(uuid, status) => {
-                        match status {
-                            JudgeState::Accepted(test_uuid, time, mem) => {
-                                debug!("(AC) uuid: {}, time: {}ms, mem: {}kB", test_uuid, time, mem);
-                            }
-                            JudgeState::Complete(test_uuid, score, time, mem) => {
-                                debug!("(PC) uuid: {}, score: {}, time: {}ms, mem: {}kB", test_uuid, score, time, mem);
-                            }
-                            _ => {}
+                    EventMessage::JudgeResult(uuid, status) => match status {
+                        JudgeState::Accepted(test_uuid, time, mem) => {
+                            debug!("(AC) uuid: {}, time: {}ms, mem: {}kB", test_uuid, time, mem);
                         }
-                    }
+                        JudgeState::Complete(test_uuid, score, time, mem) => {
+                            debug!(
+                                "(PC) uuid: {}, score: {}, time: {}ms, mem: {}kB",
+                                test_uuid, score, time, mem
+                            );
+                        }
+                        _ => {}
+                    },
                     EventMessage::EndJudge(uuid) => {
                         ctx.terminate();
                     }
@@ -66,12 +67,25 @@ fn test_ac_prize() {
         addr.send(HandlerMessage::Judge(RequestJudge {
             uuid: judge_uuid,
             judge_priority: PrioirityWeight::First,
-            test_size: 3,
-            stdin: vec!["assets/prize/stdin/1.in", "assets/prize/stdin/2.in", "assets/prize/stdin/3.in"],
-            stdout: vec!["assets/prize/stdout/1.out", "assets/prize/stdout/2.out", "assets/prize/stdout/3.out"],
+            test_size: 5,
+            stdin: vec![
+                "assets/prize/stdin/1.in",
+                "assets/prize/stdin/2.in",
+                "assets/prize/stdin/3.in",
+                "assets/prize/stdin/4.in",
+                "assets/prize/stdin/5.in",
+            ],
+            stdout: vec![
+                "assets/prize/stdout/1.out",
+                "assets/prize/stdout/2.out",
+                "assets/prize/stdout/3.out",
+                "assets/prize/stdout/4.out",
+                "assets/prize/stdout/5.out",
+            ],
             main: include_bytes!("../../assets/prize/cpp/ac_optimal.cpp").to_vec(),
             checker: include_bytes!("../../assets/prize/checker/checker.cpp").to_vec(),
             manager: Some(include_bytes!("../../assets/prize/graders/manager.cpp").to_vec()),
+            procs: Some(5),
             manager_lang_uuid: Some(
                 uuid::Uuid::from_str("ad9d152c-abbd-4dd2-b484-5825b6a7e4bb").unwrap(),
             ),
@@ -160,6 +174,7 @@ fn test_ac1() {
                 .unwrap(),
             time_limit: 1000,
             mem_limit: 1048576,
+            procs: None,
         }))
         .await
         .ok();
@@ -236,6 +251,7 @@ fn test_tle1() {
                 .unwrap(),
             time_limit: 1000,
             mem_limit: 1048576,
+            procs: None,
         }))
         .await
         .ok();
@@ -312,6 +328,7 @@ fn test_rte1() {
                 .unwrap(),
             time_limit: 1000,
             mem_limit: 1048576,
+            procs: None,
         }))
         .await
         .ok();

@@ -6,5 +6,5 @@ use uuid::Uuid;
 #[rtype(result = "()")]
 pub enum EventMessage {
     JudgeResult(Uuid, JudgeState), // (judge UUID, state)
-    EndJudge(Uuid)
+    EndJudge(Uuid),
 }
