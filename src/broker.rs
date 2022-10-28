@@ -21,7 +21,7 @@ pub async fn serve_broker<T, P>(
     scheduler_tx: Sender<SchedulerMessage>,
     broker_tx: Sender<BrokerMessage>,
     broker_rx: &mut Receiver<BrokerMessage>,
-    state: Arc<Mutex<State<T, P>>>,
+    state: Arc<State<T, P>>,
 ) where
     T: Actor + Handler<EventMessage>,
     <T as actix::Actor>::Context: ToEnvelope<T, EventMessage>,
@@ -36,8 +36,6 @@ pub async fn serve_broker<T, P>(
                     let scheduler_cloned = scheduler_tx.clone();
                     spawn(async move {
                         state_mutex
-                            .lock()
-                            .await
                             .handle_command(scheduler_cloned, broker_cloned, stream, packet)
                             .await
                     });

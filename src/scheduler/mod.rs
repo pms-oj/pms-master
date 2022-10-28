@@ -30,15 +30,15 @@ pub enum SchedulerError {
 #[async_trait]
 pub trait SchedulerWeighted {
     fn new(tx: Sender<SchedulerMessage>) -> Self;
-    async fn register(&mut self);
-    async fn rebalance(&mut self) -> SchedulerResult<()>;
-    async fn unregister(&mut self, node_id: usize) -> SchedulerResult<()>;
-    async fn push(&mut self, uuid: Uuid, total_time: u64, weight: u64) -> SchedulerResult<usize>;
-    async fn touch(&mut self, node_id: usize) -> SchedulerResult<()>;
+    async fn register(&self);
+    async fn rebalance(&self) -> SchedulerResult<()>;
+    async fn unregister(&self, node_id: usize) -> SchedulerResult<()>;
+    async fn push(&self, uuid: Uuid, total_time: u64, weight: u64) -> SchedulerResult<usize>;
+    async fn touch(&self, node_id: usize) -> SchedulerResult<()>;
 }
 
 pub async fn serve_scheduler<T, P>(
-    state: Arc<Mutex<State<T, P>>>,
+    state: Arc<State<T, P>>,
     scheduler_rx: &mut Receiver<SchedulerMessage>,
 ) where
     T: Actor + Handler<EventMessage>,
@@ -50,15 +50,13 @@ pub async fn serve_scheduler<T, P>(
             match msg {
                 SchedulerMessage::Send(uuid, node_id) => {
                     state
-                        .lock()
-                        .await
                         .handle_judge_send(uuid, node_id)
                         .await
                         .ok();
                 }
                 SchedulerMessage::DownNode(node_id) => {
                     debug!("down node {}", node_id);
-                    state.lock().await.down_node(node_id).await;
+                    state.down_node(node_id).await;
                 }
                 _ => {}
             }

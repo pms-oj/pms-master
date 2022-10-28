@@ -48,14 +48,14 @@ where
 {
     pub cfg: Arc<Config>,
     host_pass: Arc<Vec<u8>>,
-    count: Mutex<u32>,
+    count: RwLock<u32>,
     key: Arc<EphemeralSecret>,
-    pubkey: Arc<Mutex<Vec<PublicKey>>>,
-    shared: Arc<Mutex<Vec<SharedSecret>>>,
-    judges: Arc<Mutex<HashMap<Uuid, RequestJudge<P>>>>,
-    testman: Arc<Mutex<Vec<Option<Box<TestCaseManager<P>>>>>>,
-    peers: Arc<Mutex<Vec<Sender<Vec<u8>>>>>,
-    scheduler: Arc<Mutex<ByDeadlineWeighted>>,
+    pubkey: Arc<RwLock<Vec<PublicKey>>>,
+    shared: Arc<RwLock<Vec<SharedSecret>>>,
+    judges: Arc<RwLock<HashMap<Uuid, RequestJudge<P>>>>,
+    testman: Arc<RwLock<Vec<Option<Box<TestCaseManager<P>>>>>>,
+    peers: Arc<RwLock<Vec<Sender<Vec<u8>>>>>,
+    scheduler: Arc<ByDeadlineWeighted>,
     handler_addr: Addr<HandlerService<T, P>>,
     event_addr: Addr<T>,
 }
@@ -84,7 +84,7 @@ where
 {
     pub cfg: Config,
     pub event_addr: Addr<T>,
-    pub state: Option<Arc<Mutex<State<T, P>>>>,
+    pub state: Option<Arc<State<T, P>>>,
 }
 
 impl<T, P> Actor for HandlerService<T, P>
@@ -101,44 +101,44 @@ where
         let pubkey = key.public_key();
         let (scheduler_tx, mut scheduler_rx) = unbounded();
         let (reversed_tx, _) = unbounded();
-        self.state = Some(Arc::new(Mutex::new(State {
+        self.state = Some(Arc::new(State {
             cfg: Arc::new(self.cfg.clone()),
             host_pass: Arc::new(blake3::hash(self.cfg.host_pass.as_bytes()).as_bytes().to_vec()),
-            count: Mutex::new(1),
+            count: RwLock::new(1),
             key: Arc::new(key),
-            shared: Arc::new(Mutex::new(vec![SharedSecret::from(
+            shared: Arc::new(RwLock::new(vec![SharedSecret::from(
                 [0; KEY_SIZE]
                     .to_vec()
                     .into_iter()
                     .collect::<k256::FieldBytes>(),
             )])),
-            judges: Arc::new(Mutex::new(HashMap::new())),
-            pubkey: Arc::new(Mutex::new(vec![pubkey])),
-            peers: Arc::new(Mutex::new(vec![reversed_tx])),
-            testman: Arc::new(Mutex::new(vec![None])),
-            scheduler: Arc::new(Mutex::new(ByDeadlineWeighted::new(scheduler_tx.clone()))),
+            judges: Arc::new(RwLock::new(HashMap::new())),
+            pubkey: Arc::new(RwLock::new(vec![pubkey])),
+            peers: Arc::new(RwLock::new(vec![reversed_tx])),
+            testman: Arc::new(RwLock::new(vec![None])),
+            scheduler: Arc::new(ByDeadlineWeighted::new(scheduler_tx.clone())),
             handler_addr: ctx.address(),
             event_addr: self.event_addr.clone(),
-        })));
+        }));
         let (broker_tx, mut broker_rx) = unbounded();
         let state = Arc::clone(self.state.as_ref().unwrap());
         let host = self.cfg.host.clone();
         actix::spawn(async move {
             {
-                let state_mutex = Arc::clone(&state);
+                let state_arc = Arc::clone(&state);
                 spawn(
-                    async move { serve_scheduler(Arc::clone(&state_mutex), &mut scheduler_rx).await },
+                    async move { serve_scheduler(Arc::clone(&state_arc), &mut scheduler_rx).await },
                 );
             }
             {
-                let state_mutex = Arc::clone(&state);
+                let state_arc = Arc::clone(&state);
                 let broker_cloned = broker_tx.clone();
                 let scheduler_cloned = scheduler_tx.clone();
                 spawn(async move {
-                    serve_broker(scheduler_cloned, broker_cloned, &mut broker_rx, state_mutex).await
+                    serve_broker(scheduler_cloned, broker_cloned, &mut broker_rx, state_arc).await
                 });
             }
-            let state_mutex = Arc::clone(&state);
+            let state_arc = Arc::clone(&state);
             spawn(async move {
                 let listener = TcpListener::bind(host.clone())
                     .await
@@ -147,11 +147,11 @@ where
                     .incoming()
                     .for_each_concurrent(None, |stream| async {
                         let stream = stream.unwrap();
-                        let state_mutex = Arc::clone(&state_mutex);
+                        let state_arc = Arc::clone(&state_arc);
                         let broker_cloned = broker_tx.clone();
                         let scheduler_cloned = scheduler_tx.clone();
                         spawn(async move {
-                            (state_mutex.lock().await)
+                            state_arc
                                 .handle_connection(scheduler_cloned, broker_cloned, stream)
                                 .await
                                 .ok();
@@ -174,12 +174,12 @@ where
     fn handle(&mut self, msg: HandlerMessage<P>, ctx: &mut Context<Self>) -> Self::Result {
         match msg {
             HandlerMessage::Judge(judge) => {
-                let state_mutex = Arc::clone(&self.state.as_ref().unwrap());
-                spawn(async move { state_mutex.lock().await.req_judge(judge).await });
+                let state_arc = Arc::clone(&self.state.as_ref().unwrap());
+                spawn(async move { state_arc.req_judge(judge).await });
             }
             HandlerMessage::DownNode(node_id) => {
-                let state_mutex = Arc::clone(&self.state.as_ref().unwrap());
-                spawn(async move { state_mutex.lock().await.down_node(node_id).await });
+                let state_arc = Arc::clone(&self.state.as_ref().unwrap());
+                spawn(async move { state_arc.down_node(node_id).await });
             }
             HandlerMessage::Shutdown => {
                 unimplemented!()
@@ -196,7 +196,7 @@ where
     P: AsRef<Path> + 'static + Send + Sync + Clone,
 {
     pub async fn handle_connection(
-        &mut self,
+        &self,
         scheduler_tx: Sender<SchedulerMessage>,
         broker_tx: Sender<BrokerMessage>,
         stream: TcpStream,
@@ -211,27 +211,25 @@ where
             .await
     }
 
-    pub async fn req_judge(&mut self, judge: RequestJudge<P>) -> SchedulerResult<()> {
+    pub async fn req_judge(&self, judge: RequestJudge<P>) -> SchedulerResult<()> {
         let estimated_time = (judge.test_size as u64) * judge.time_limit;
         let _ = self
             .scheduler
-            .lock()
-            .await
             .push(judge.uuid, estimated_time, judge.judge_priority as u64)
             .await?;
-        self.judges.lock().await.insert(judge.uuid, judge);
+        self.judges.write().await.insert(judge.uuid, judge);
         Ok(())
     }
 
     pub async fn handle_judge_send(
-        &mut self,
+        &self,
         uuid: Uuid,
         node_id: u32,
     ) -> async_std::io::Result<()> {
-        let mut sender = self.peers.lock().await[node_id as usize].clone();
-        let judges = self.judges.lock().await;
+        let sender = self.peers.read().await[node_id as usize].clone();
+        let judges = self.judges.read().await;
         let judge = judges.get(&uuid).unwrap();
-        let shared = &(*self.shared.lock().await)[node_id as usize];
+        let shared = &(*self.shared.read().await)[node_id as usize];
         let key = expand_key(&shared);
         match judge.judgement_type {
             JudgementType::Simple => {
@@ -244,7 +242,7 @@ where
                     mem_limit: judge.mem_limit,
                     time_limit: judge.time_limit,
                 };
-                self.testman.lock().await[node_id as usize] =
+                self.testman.write().await[node_id as usize] =
                     Some(Box::new(TestCaseManager::from(&judge.stdin, &judge.stdout)));
                 let packet = Packet::make_packet(
                     Command::GetJudge,
@@ -254,7 +252,7 @@ where
                         .serialize(&body)
                         .unwrap(),
                 );
-                packet.send_with_sender(&mut sender).await;
+                packet.send_with_sender(sender).await;
                 Ok(())
             }
             JudgementType::Novel => {
@@ -302,7 +300,7 @@ where
                     time_limit: judge.time_limit,
                     procs: judge.procs.unwrap_or_else(|| DEFAULT_PROCESSES),
                 };
-                self.testman.lock().await[node_id as usize] =
+                self.testman.write().await[node_id as usize] =
                     Some(Box::new(TestCaseManager::from(&judge.stdin, &judge.stdout)));
                 let packet = Packet::make_packet(
                     Command::GetJudgev2,
@@ -312,31 +310,29 @@ where
                         .serialize(&body)
                         .unwrap(),
                 );
-                packet.send_with_sender(&mut sender).await;
+                packet.send_with_sender(sender).await;
                 Ok(())
             }
         }
     }
 
-    async fn unlock_slave(&mut self, node_id: u32) {
+    async fn unlock_slave(&self, node_id: u32) {
         // TODO
         trace!("[node#{}] unlocked!", node_id);
         self.scheduler
-            .lock()
-            .await
             .touch(node_id as usize)
             .await
             .ok();
-        drop(self.testman.lock().await.iter().nth(node_id as usize));
+        drop(self.testman.read().await.iter().nth(node_id as usize));
     }
 
     async fn send_testcase(
-        &mut self,
-        stream: &mut Sender<Vec<u8>>,
+        &self,
+        stream: Sender<Vec<u8>>,
         judge_uuid: Uuid,
         node_id: u32,
     ) -> bool {
-        let test_uuid = self.testman.lock().await[node_id as usize]
+        let test_uuid = self.testman.write().await[node_id as usize]
             .as_mut()
             .unwrap()
             .next();
@@ -350,8 +346,8 @@ where
                 .ok();
             false
         } else {
-            let testman = self.testman.lock().await;
-            let key = expand_key(&self.shared.lock().await[node_id as usize]);
+            let testman = self.testman.read().await;
+            let key = expand_key(&self.shared.read().await[node_id as usize]);
             let (stdin, stdout) = testman[node_id as usize]
                 .as_ref()
                 .unwrap()
@@ -376,11 +372,10 @@ where
         }
     }
 
-    pub async fn down_node(&mut self, node_id: u32) {
-        let testman = self.testman.lock().await;
-        let mut scheduler = self.scheduler.lock().await;
+    pub async fn down_node(&self, node_id: u32) {
+        let testman = self.testman.write().await;
         trace!("ok ok down {}", node_id);
-        scheduler
+        self.scheduler
             .unregister(node_id as usize)
             .await
             .expect("failed to down node");
@@ -389,7 +384,7 @@ where
     }
 
     pub async fn handle_command(
-        &mut self,
+        &self,
         scheduler_tx: Sender<SchedulerMessage>,
         broker_tx: Sender<BrokerMessage>,
         stream: Arc<TcpStream>,
@@ -425,9 +420,9 @@ where
                                 body.req.uuid,
                                 stdout
                             );
-                            let mut tx = self.peers.lock().await[body.node_id as usize].clone();
+                            let tx = self.peers.read().await[body.node_id as usize].clone();
                             let _ = self
-                                .send_testcase(&mut tx, body.req.uuid, body.node_id)
+                                .send_testcase(tx, body.req.uuid, body.node_id)
                                 .await;
                             Ok(())
                         }
@@ -438,57 +433,57 @@ where
                         }
                         JudgeState::Complete(test_uuid, score, time, mem) => {
                             debug!("[node#{}] (Judge: {}) (Test: {}) master has recived report PC of main code. score: {}, time: {}ms, mem: {}kB", body.node_id, body.req.uuid, test_uuid, score, time, mem);
-                            let mut tx = self.peers.lock().await[body.node_id as usize].clone();
+                            let tx = self.peers.read().await[body.node_id as usize].clone();
                             let _ = self
-                                .send_testcase(&mut tx, body.req.uuid, body.node_id)
+                                .send_testcase(tx, body.req.uuid, body.node_id)
                                 .await;
                             Ok(())
                         }
                         JudgeState::Accepted(test_uuid, time, mem) => {
                             debug!("[node#{}] (Judge: {}) (Test: {}) master has recived report AC of main code. time: {}ms, mem: {}kB", body.node_id, body.req.uuid, test_uuid, time, mem);
-                            let mut tx = self.peers.lock().await[body.node_id as usize].clone();
+                            let tx = self.peers.read().await[body.node_id as usize].clone();
                             let _ = self
-                                .send_testcase(&mut tx, body.req.uuid, body.node_id)
+                                .send_testcase(tx, body.req.uuid, body.node_id)
                                 .await;
                             Ok(())
                         }
                         JudgeState::WrongAnswer(test_uuid, time, mem) => {
                             trace!("[node#{}] (Judge: {}) (Test: {}) master has recived report WA of main code. time: {}ms, mem: {}kB", body.node_id, body.req.uuid, test_uuid, time, mem);
-                            let mut tx = self.peers.lock().await[body.node_id as usize].clone();
+                            let tx = self.peers.read().await[body.node_id as usize].clone();
                             let _ = self
-                                .send_testcase(&mut tx, body.req.uuid, body.node_id)
+                                .send_testcase(tx, body.req.uuid, body.node_id)
                                 .await;
                             Ok(())
                         }
                         JudgeState::RuntimeError(test_uuid, exit_code) => {
                             trace!("[node#{}] (Judge: {}) (Test: {}) master has recived report RTE(NZEC) of main code. exit code: {}", body.node_id, body.req.uuid, test_uuid, exit_code);
-                            let mut tx = self.peers.lock().await[body.node_id as usize].clone();
+                            let tx = self.peers.read().await[body.node_id as usize].clone();
                             let _ = self
-                                .send_testcase(&mut tx, body.req.uuid, body.node_id)
+                                .send_testcase(tx, body.req.uuid, body.node_id)
                                 .await;
                             Ok(())
                         }
                         JudgeState::DiedOnSignal(test_uuid, exit_sig) => {
                             trace!("[node#{}] (Judge: {}) (Test: {}) master has recived report RTE(DiedOnSignal) of main code. exit code: {}", body.node_id, body.req.uuid, test_uuid, exit_sig);
-                            let mut tx = self.peers.lock().await[body.node_id as usize].clone();
+                            let tx = self.peers.read().await[body.node_id as usize].clone();
                             let _ = self
-                                .send_testcase(&mut tx, body.req.uuid, body.node_id)
+                                .send_testcase(tx, body.req.uuid, body.node_id)
                                 .await;
                             Ok(())
                         }
                         JudgeState::TimeLimitExceed(test_uuid) => {
                             trace!("[node#{}] (Judge: {}) (Test: {}) master has recived report TLE of main code.", body.node_id, body.req.uuid, test_uuid);
-                            let mut tx = self.peers.lock().await[body.node_id as usize].clone();
+                            let tx = self.peers.read().await[body.node_id as usize].clone();
                             let _ = self
-                                .send_testcase(&mut tx, body.req.uuid, body.node_id)
+                                .send_testcase(tx, body.req.uuid, body.node_id)
                                 .await;
                             Ok(())
                         }
                         JudgeState::MemLimitExceed(test_uuid) => {
                             trace!("[node#{}] (Judge: {}) (Test: {}) master has recived report MLE of main code.", body.node_id, body.req.uuid, test_uuid);
-                            let mut tx = self.peers.lock().await[body.node_id as usize].clone();
+                            let tx = self.peers.read().await[body.node_id as usize].clone();
                             let _ = self
-                                .send_testcase(&mut tx, body.req.uuid, body.node_id)
+                                .send_testcase(tx, body.req.uuid, body.node_id)
                                 .await;
                             Ok(())
                         }
@@ -521,12 +516,12 @@ where
                     if handshake_req.pass == *self.host_pass {
                         trace!("Handshake");
                         self.shared
-                            .lock()
+                            .write()
                             .await
                             .push(self.key.diffie_hellman(&handshake_req.client_pubkey));
-                        self.pubkey.lock().await.push(handshake_req.client_pubkey);
-                        self.testman.lock().await.push(None);
-                        let node_id = *self.count.lock().await;
+                        self.pubkey.write().await.push(handshake_req.client_pubkey);
+                        self.testman.write().await.push(None);
+                        let node_id = *self.count.read().await;
                         let handshake_res = HandshakeResponse {
                             result: HandshakeResult::Success,
                             node_id: Some(node_id),
@@ -540,8 +535,7 @@ where
                                 .serialize(&handshake_res)
                                 .unwrap(),
                         );
-                        (*self.count.lock().await) += 1;
-                        self.scheduler.lock().await.register().await;
+                        (*self.count.write().await) += 1;
                         let (packet_tx, mut packet_rx): (Sender<Vec<u8>>, Receiver<Vec<u8>>) =
                             unbounded();
                         let scheduler_cloned = scheduler_tx.clone();
@@ -559,8 +553,9 @@ where
                         });
                         let serve_tx = self.handler_addr.clone();
                         spawn(async move { check_alive(node_id, serve_tx, stream).await });
-                        req_packet.send_with_sender(&mut packet_tx.clone()).await;
-                        self.peers.lock().await.push(packet_tx);
+                        req_packet.send_with_sender(packet_tx.clone()).await;
+                        self.peers.write().await.push(packet_tx);
+                        self.scheduler.register().await;
                         Ok(())
                     } else {
                         let handshake_res = HandshakeResponse {
@@ -590,8 +585,8 @@ where
                     .deserialize::<BodyAfterHandshake<()>>(&packet.heady.body)
                 {
                     let client_pubkey = body.client_pubkey;
-                    let ret = (*self.count.lock().await <= body.node_id)
-                        || (self.pubkey.lock().await[body.node_id as usize] == client_pubkey);
+                    let ret = (*self.count.read().await <= body.node_id)
+                        || (self.pubkey.read().await[body.node_id as usize] == client_pubkey);
                     let req_packet = Packet::make_packet(
                         Command::ReqVerifyToken,
                         bincode::DefaultOptions::new()
