@@ -11,7 +11,7 @@ fn init() {
 
 #[test]
 fn test_ac_prize() {
-    use crate::config::Config;
+    use crate::config::*;
     use crate::event::*;
     use crate::handler::{HandlerMessage, HandlerService};
     use actix::prelude::*;
@@ -24,8 +24,14 @@ fn test_ac_prize() {
         use std::time::Duration;
         sleep(Duration::from_secs(1)).await;
         let cfg = Config {
-            host: "127.0.0.1:3030".to_string(),
-            host_pass: String::from("asdf"),
+            general: General {
+                host: "127.0.0.1:3030".to_string(),
+                host_pass: "asdf".to_string(),
+            },
+            tls: TlsConfig {
+                cert_pem: "certs/cert.pem".to_string(),
+                key_pem: "certs/key.pem".to_string(),
+            },
         };
         let judge_uuid = uuid::Uuid::new_v4();
         use judge::*;
@@ -58,22 +64,19 @@ fn test_ac_prize() {
             }
         }
         let event_addr = JudgeService {}.start();
-        let handler_service = HandlerService {
-            state: None,
-            cfg,
-            event_addr: event_addr.clone(),
-        };
-        let addr = handler_service.start();
+        let addr = HandlerService::start(cfg, event_addr.clone());
         addr.send(HandlerMessage::Judge(RequestJudge {
             uuid: judge_uuid,
             judge_priority: PrioirityWeight::First,
-            test_size: 5,
+            test_size: 7,
             stdin: vec![
                 "assets/prize/stdin/1.in",
                 "assets/prize/stdin/2.in",
                 "assets/prize/stdin/3.in",
                 "assets/prize/stdin/4.in",
                 "assets/prize/stdin/5.in",
+                "assets/prize/stdin/6.in",
+                "assets/prize/stdin/7.in",
             ],
             stdout: vec![
                 "assets/prize/stdout/1.out",
@@ -81,6 +84,8 @@ fn test_ac_prize() {
                 "assets/prize/stdout/3.out",
                 "assets/prize/stdout/4.out",
                 "assets/prize/stdout/5.out",
+                "assets/prize/stdout/6.out",
+                "assets/prize/stdout/7.out",
             ],
             main: include_bytes!("../../assets/prize/cpp/ac_optimal.cpp").to_vec(),
             checker: include_bytes!("../../assets/prize/checker/checker.cpp").to_vec(),
@@ -111,7 +116,7 @@ fn test_ac_prize() {
 
 #[test]
 fn test_ac1() {
-    use crate::config::Config;
+    use crate::config::*;
     use crate::event::*;
     use crate::handler::{HandlerMessage, HandlerService};
     use actix::prelude::*;
@@ -124,8 +129,14 @@ fn test_ac1() {
         use std::time::Duration;
         sleep(Duration::from_secs(1)).await;
         let cfg = Config {
-            host: "127.0.0.1:3030".to_string(),
-            host_pass: String::from("asdf"),
+            general: General {
+                host: "127.0.0.1:3030".to_string(),
+                host_pass: "asdf".to_string(),
+            },
+            tls: TlsConfig {
+                cert_pem: "certs/cert.pem".to_string(),
+                key_pem: "certs/key.pem".to_string(),
+            },
         };
         let judge_uuid = uuid::Uuid::new_v4();
         use judge::*;
@@ -149,12 +160,7 @@ fn test_ac1() {
             }
         }
         let event_addr = JudgeService {}.start();
-        let handler_service = HandlerService {
-            state: None,
-            cfg,
-            event_addr: event_addr.clone(),
-        };
-        let addr = handler_service.start();
+        let addr = HandlerService::start(cfg, event_addr.clone());
         addr.send(HandlerMessage::Judge(RequestJudge {
             uuid: judge_uuid,
             judge_priority: PrioirityWeight::First,
@@ -188,7 +194,7 @@ fn test_ac1() {
 
 #[test]
 fn test_tle1() {
-    use crate::config::Config;
+    use crate::config::*;
     use crate::event::*;
     use crate::handler::{HandlerMessage, HandlerService};
     use actix::prelude::*;
@@ -201,8 +207,14 @@ fn test_tle1() {
         use std::time::Duration;
         sleep(Duration::from_secs(1)).await;
         let cfg = Config {
-            host: "127.0.0.1:3030".to_string(),
-            host_pass: String::from("asdf"),
+            general: General {
+                host: "127.0.0.1:3030".to_string(),
+                host_pass: "asdf".to_string(),
+            },
+            tls: TlsConfig {
+                cert_pem: "certs/cert.pem".to_string(),
+                key_pem: "certs/key.pem".to_string(),
+            },
         };
         let judge_uuid = uuid::Uuid::new_v4();
         use judge::*;
@@ -226,12 +238,7 @@ fn test_tle1() {
             }
         }
         let event_addr = JudgeService {}.start();
-        let handler_service = HandlerService {
-            state: None,
-            cfg,
-            event_addr: event_addr.clone(),
-        };
-        let addr = handler_service.start();
+        let addr = HandlerService::start(cfg, event_addr.clone());
         addr.send(HandlerMessage::Judge(RequestJudge {
             uuid: judge_uuid,
             judge_priority: PrioirityWeight::First,
@@ -265,7 +272,7 @@ fn test_tle1() {
 
 #[test]
 fn test_rte1() {
-    use crate::config::Config;
+    use crate::config::*;
     use crate::event::*;
     use crate::handler::{HandlerMessage, HandlerService};
     use actix::prelude::*;
@@ -278,8 +285,14 @@ fn test_rte1() {
         use std::time::Duration;
         sleep(Duration::from_secs(1)).await;
         let cfg = Config {
-            host: "127.0.0.1:3030".to_string(),
-            host_pass: String::from("asdf"),
+            general: General {
+                host: "127.0.0.1:3030".to_string(),
+                host_pass: "asdf".to_string(),
+            },
+            tls: TlsConfig {
+                cert_pem: "certs/cert.pem".to_string(),
+                key_pem: "certs/key.pem".to_string(),
+            },
         };
         let judge_uuid = uuid::Uuid::new_v4();
         use judge::*;
@@ -303,12 +316,7 @@ fn test_rte1() {
             }
         }
         let event_addr = JudgeService {}.start();
-        let handler_service = HandlerService {
-            state: None,
-            cfg,
-            event_addr: event_addr.clone(),
-        };
-        let addr = handler_service.start();
+        let addr = HandlerService::start(cfg, event_addr.clone());
         addr.send(HandlerMessage::Judge(RequestJudge {
             uuid: judge_uuid,
             judge_priority: PrioirityWeight::First,

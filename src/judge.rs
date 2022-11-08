@@ -42,24 +42,24 @@ pub enum PrioirityWeight {
     Second = 2,
 }
 
-pub enum TestCaseState {
+pub enum TestcaseState {
     Next(Uuid),
     End,
 }
 
 // not an iterator!
-pub struct TestCaseManager<P> {
+pub struct TestcaseManager<P> {
     tests: HashMap<Uuid, (P, P)>,
-    uuid_map: HashMap<Uuid, TestCaseState>,
+    uuid_map: HashMap<Uuid, TestcaseState>,
     pub cur: Uuid,
 }
 
-impl<P> TestCaseManager<P>
+impl<P> TestcaseManager<P>
 where
     P: AsRef<Path> + Clone,
 {
     pub fn from(stdin: &[P], stdout: &[P]) -> Self {
-        let mut testman = TestCaseManager {
+        let mut testman = TestcaseManager {
             tests: HashMap::new(),
             uuid_map: HashMap::new(),
             cur: Uuid::nil(),
@@ -77,18 +77,18 @@ where
             for i in 0..(n - 1) {
                 testman
                     .uuid_map
-                    .insert(uuids[i], TestCaseState::Next(uuids[i + 1]));
+                    .insert(uuids[i], TestcaseState::Next(uuids[i + 1]));
             }
             testman
                 .uuid_map
-                .insert(testman.cur, TestCaseState::Next(uuids[0]));
-            testman.uuid_map.insert(uuids[n - 1], TestCaseState::End);
+                .insert(testman.cur, TestcaseState::Next(uuids[0]));
+            testman.uuid_map.insert(uuids[n - 1], TestcaseState::End);
         }
         testman
     }
 
     pub fn next(&mut self) -> Uuid {
-        if let Some(TestCaseState::Next(uuid_next)) = self.uuid_map.get(&self.cur) {
+        if let Some(TestcaseState::Next(uuid_next)) = self.uuid_map.get(&self.cur) {
             self.cur = uuid_next.clone();
             uuid_next.clone()
         } else {
